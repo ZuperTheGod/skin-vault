@@ -1,0 +1,17 @@
+# user settings / runtime
+config.json
+logs/
+incoming/
+work/
+unpacked/
+__pycache__/
+*.pyc
+# per-user caches in data/ (bundled data files are kept)
+data/*
+!data/championFull.json
+!data/skinhashes3.bin
+!data/texnames.bin
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

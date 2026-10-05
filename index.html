@@ -1,0 +1,1111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skin Vault</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d1420'/%3E%3Cpath d='M32 9l19 9v14c0 12-8 20-19 24-11-4-19-12-19-24V18z' fill='none' stroke='%23c8aa6e' stroke-width='4'/%3E%3Cpath d='M24 33l6 6 11-13' fill='none' stroke='%230ac8b9' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cinzel:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#070b12; --panel:#0d1420; --panel2:#121b2a; --line:#1e2a3d; --line2:#2a3a52;
+  --text:#e8ecf2; --muted:#8a97ab; --dim:#5d6a7e;
+  --gold:#c8aa6e; --gold2:#f0e6d2; --teal:#0ac8b9;
+  --err:#ff5a5f; --warn:#f5b041; --info:#5aa9ff; --ok:#3ccf91;
+  --r:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.45 Inter,system-ui,Segoe UI,sans-serif}
+button{font:inherit;color:inherit;cursor:pointer}
+input,select{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line2);border-radius:8px;padding:8px 10px;outline:none}
+input:focus,select:focus{border-color:var(--gold)}
+a{color:var(--teal)}
+.app{display:grid;grid-template-columns:300px 1fr;grid-template-rows:60px 1fr;height:100vh}
+header{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0e1726,#0a111c)}
+.brand{font-family:Cinzel,serif;font-size:20px;letter-spacing:.06em;color:var(--gold);white-space:nowrap}
+.brand small{font-family:Inter;font-size:11px;color:var(--dim);letter-spacing:0;margin-left:8px}
+.stats{display:flex;gap:16px;color:var(--muted);font-size:12.5px;margin-left:8px}
+.stats b{color:var(--text);font-weight:600}
+.stats .e b{color:var(--err)} .stats .w b{color:var(--warn)}
+.spacer{flex:1}
+.btn{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;padding:7px 12px;font-size:13px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{border-color:var(--gold);color:var(--gold2)}
+.btn.primary{background:linear-gradient(180deg,#1e5c66,#124048);border-color:#1f7f86}
+.btn.gold{background:linear-gradient(180deg,#3a2f17,#251d0d);border-color:#7a6232;color:var(--gold2)}
+.btn.small{padding:4px 9px;font-size:12px}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.badge{display:inline-block;min-width:18px;padding:0 6px;border-radius:9px;background:var(--line2);font-size:11px;text-align:center;line-height:18px}
+.badge.e{background:var(--err);color:#fff}.badge.w{background:var(--warn);color:#111}
+
+aside{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+.side-top{padding:12px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
+.side-top input{width:100%}
+.toggles{display:flex;gap:6px;flex-wrap:wrap}
+.tg{font-size:12px;padding:4px 9px;border-radius:14px;border:1px solid var(--line2);background:transparent;color:var(--muted)}
+.tg.on{border-color:var(--gold);color:var(--gold2);background:#2a2312}
+.champ-list{overflow:auto;padding:6px 6px 20px}
+.sec-label{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);padding:12px 8px 6px}
+.crow{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+.crow:hover{background:var(--panel2)}
+.crow.sel{background:#1a2333;border-color:var(--line2)}
+.crow img,.crow .ph{width:34px;height:34px;border-radius:6px;border:1px solid var(--line2);flex:none;object-fit:cover;background:#1a2333}
+.crow .ph{display:grid;place-items:center;color:var(--gold);font-weight:700}
+.crow .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crow.empty{opacity:.45}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+.dot.error{background:var(--err)}.dot.warn{background:var(--warn)}
+
+main{overflow:auto;min-height:0;position:relative}
+.hero{position:relative;height:210px;background:#0b111b center 20%/cover no-repeat;border-bottom:1px solid var(--line)}
+.hero::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(7,11,18,.95) 0%,rgba(7,11,18,.55) 55%,rgba(7,11,18,.2)),linear-gradient(0deg,var(--bg) 0%,transparent 60%)}
+.hero-in{position:absolute;z-index:1;left:28px;bottom:22px;right:28px;display:flex;align-items:flex-end;gap:18px}
+.hero h1{font-family:Cinzel,serif;font-size:34px;margin:0;color:var(--gold2);letter-spacing:.03em}
+.hero .sub{color:var(--muted);font-size:13px;text-transform:capitalize}
+.hero .meta{margin-left:auto;display:flex;gap:8px;align-items:center}
+.content{padding:22px 28px 60px}
+.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+
+.group{display:grid;grid-template-columns:150px 1fr;gap:18px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:14px}
+.group.nomods{opacity:.5}
+.art{position:relative;width:150px;aspect-ratio:308/560;border-radius:8px;overflow:hidden;background:#141d2c;border:1px solid var(--line2)}
+.art img{width:100%;height:100%;object-fit:cover;display:block}
+.art .ic{position:absolute;inset:0;display:grid;place-items:center;font-size:42px;color:var(--dim)}
+.gh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+.gh h3{margin:0;font-size:18px;color:var(--gold2);font-weight:600}
+.gh .num{color:var(--dim);font-size:12px}
+.pick{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--teal);background:#08262a;border:1px solid #11484c;border-radius:6px;padding:2px 8px;margin-bottom:10px}
+.conf{font-size:12px;color:var(--warn);margin-left:4px}
+.mods{display:flex;flex-direction:column;gap:8px}
+.mod{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:start;background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--ok);border-radius:8px;padding:10px 12px}
+.mod.sev-error{border-left-color:var(--err)}.mod.sev-warn{border-left-color:var(--warn)}.mod.sev-info{border-left-color:var(--info)}
+.mod.flash{animation:flash 2.2s ease}
+@keyframes flash{0%,40%{box-shadow:0 0 0 2px var(--gold)}100%{box-shadow:none}}
+.thumb{width:56px;height:56px;border-radius:6px;object-fit:cover;background:#0b111b;border:1px solid var(--line2);cursor:zoom-in}
+.thumb.none{display:grid;place-items:center;color:var(--dim);font-size:11px;cursor:default;text-align:center}
+.mt{font-weight:600;font-size:14.5px;word-break:break-word}
+.ms{color:var(--muted);font-size:12px;margin-top:1px;word-break:break-all}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.chip{font-size:11.5px;padding:2px 8px;border-radius:5px;background:#1a2537;border:1px solid var(--line2);color:var(--muted)}
+.chip.t{color:var(--gold2);border-color:#5a4a2a;background:#231d10}
+.chip.looks{color:#c9b6ff;border-color:#4a3a7a;background:#1b1530}
+.issue{display:flex;gap:7px;align-items:flex-start;font-size:12.5px;margin-top:5px}
+.issue .i{flex:none;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:700;margin-top:1px}
+.issue.error{color:#ffb3b5}.issue.error .i{background:var(--err);color:#fff}
+.issue.warn{color:#ffd99a}.issue.warn .i{background:var(--warn);color:#111}
+.issue.info{color:#a9cfff}.issue.info .i{background:#24456e;color:#cfe4ff}
+.acts{display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.children{margin-top:8px;font-size:12px;color:var(--muted);border-top:1px dashed var(--line2);padding-top:6px}
+.children div{padding:1px 0}
+
+.empty-state{max-width:760px;margin:40px auto;text-align:center;color:var(--muted)}
+.drop-hint{border:2px dashed var(--line2);border-radius:14px;padding:38px 20px;margin:20px 0;background:var(--panel)}
+.drop-hint h2{color:var(--gold2);font-family:Cinzel,serif;margin:0 0 8px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:18px;text-align:left}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.card .v{font-size:26px;font-weight:700;color:var(--text)}
+.card .l{font-size:12px;color:var(--muted)}
+.card.e .v{color:var(--err)}.card.w .v{color:var(--warn)}
+.recent{margin-top:22px;text-align:left}
+.recent h4{color:var(--gold);margin:0 0 8px;font-weight:600}
+.ev{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:13px;cursor:pointer}
+.ev:hover{border-color:var(--line2)}
+
+.overlay{position:fixed;inset:0;background:rgba(5,9,15,.88);display:none;place-items:center;z-index:50}
+.overlay.show{display:grid}
+.drop-box{border:3px dashed var(--gold);border-radius:20px;padding:60px 90px;text-align:center;background:rgba(200,170,110,.06)}
+.drop-box h2{font-family:Cinzel,serif;color:var(--gold2);font-size:30px;margin:0 0 8px}
+.modal-bg{position:fixed;inset:0;background:rgba(3,6,10,.75);display:none;align-items:flex-start;justify-content:center;z-index:40;padding:50px 16px;overflow:auto}
+.modal-bg.show{display:flex}
+.modal{background:var(--panel);border:1px solid var(--line2);border-radius:14px;width:min(980px,100%);max-height:calc(100vh - 100px);display:flex;flex-direction:column}
+.modal-h{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+.modal-h h2{margin:0;font-size:18px;color:var(--gold2)}
+.modal-b{padding:14px 20px;overflow:auto}
+.modal-f{padding:12px 20px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end;align-items:center}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:500;position:sticky;top:0;background:var(--panel)}
+td.path{color:var(--muted);word-break:break-all}
+tr.click{cursor:pointer} tr.click:hover td{background:var(--panel2)}
+.toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:60;max-width:420px}
+.toast{background:#101a29;border:1px solid var(--line2);border-left:4px solid var(--teal);border-radius:8px;padding:10px 14px;font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.45)}
+.toast.bad{border-left-color:var(--err)}.toast.dup{border-left-color:var(--warn)}
+.progress{height:3px;background:var(--line);position:relative;overflow:hidden;border-radius:2px;width:160px}
+.progress i{position:absolute;left:0;top:0;bottom:0;background:var(--gold);transition:width .3s}
+.scanning{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;place-items:center;z-index:70;cursor:zoom-out}
+.lightbox.show{display:grid}.lightbox img{max-width:90vw;max-height:90vh;border-radius:8px}
+.menu{position:relative}
+.menu-pop{position:absolute;right:0;top:110%;background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:6px;display:none;min-width:240px;z-index:30;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.menu-pop.show{display:block}
+.menu-pop button{display:block;width:100%;text-align:left;background:none;border:0;padding:8px 10px;border-radius:6px;font-size:13px}
+.menu-pop button:hover{background:#1c2739;color:var(--gold2)}
+.menu-pop small{display:block;color:var(--dim);font-size:11px}
+.v3d-bg{position:fixed;inset:0;background:rgba(3,6,10,.86);display:none;z-index:45;padding:28px}
+.v3d-bg.show{display:flex}
+.v3d{flex:1;display:grid;grid-template-columns:1fr 320px;background:var(--panel);border:1px solid var(--line2);border-radius:14px;overflow:hidden;min-height:0}
+.v3d-stage{position:relative;background:radial-gradient(ellipse at 50% 35%,#1d2a40 0%,#0a0f18 70%);min-height:0}
+.v3d-stage canvas{display:block;width:100%;height:100%}
+.v3d-msg{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:14px;text-align:center;padding:30px;pointer-events:none}
+.v3d-hint{position:absolute;left:14px;bottom:12px;font-size:11.5px;color:var(--dim)}
+.v3d-side{border-left:1px solid var(--line);padding:16px;overflow:auto;display:flex;flex-direction:column;gap:12px}
+.v3d-side h2{margin:0;font-size:17px;color:var(--gold2)}
+.v3d-side .sub{color:var(--muted);font-size:12.5px}
+.seg{display:flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
+.seg button{flex:1;background:none;border:0;padding:7px 8px;font-size:12.5px;color:var(--muted)}
+.seg button.on{background:#2a2312;color:var(--gold2)}
+.parts label{display:flex;gap:8px;align-items:center;font-size:12.5px;padding:3px 0;color:var(--text)}
+.parts label span{color:var(--dim);font-size:11px;margin-left:auto}
+.note{font-size:12.5px;color:#ffd99a;background:#251c08;border:1px solid #5a4416;border-radius:8px;padding:8px 10px}
+.srcs{display:flex;flex-wrap:wrap;gap:6px}
+.srcs .chip.mod{color:#9ff0c9;border-color:#1f6a4a;background:#0d2a1e}
+.sw{position:relative;width:38px;height:22px;border-radius:11px;background:#2a3446;border:1px solid var(--line2);cursor:pointer;flex:none;transition:.15s}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#8a97ab;transition:.15s}
+.sw.on{background:#14553b;border-color:#1f8a5d}.sw.on::after{left:18px;background:#9ff0c9}
+.sw.pending{box-shadow:0 0 0 2px var(--gold)}
+.ltk-row.removing{opacity:.45;text-decoration:line-through}
+.pendbar{position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;background:#2a2312;border:1px solid #7a6232;color:var(--gold2);border-radius:10px;padding:10px 14px;margin-bottom:14px}
+.chip.new{color:#fff4c2;border-color:#c8aa6e;background:linear-gradient(90deg,#4a3a12,#2a2312);font-weight:600}
+.newpill{font-size:10px;font-weight:700;letter-spacing:.04em;color:#1a1300;background:var(--gold);border-radius:6px;padding:0 5px;line-height:16px}
+.mod.is-new{box-shadow:inset 3px 0 0 var(--gold)}
+.chip.ltk-on{color:#9ff0c9;border-color:#1f6a4a;background:#0d2a1e}
+.chip.ltk-off{color:var(--muted)}
+.chip.bad{color:#ffd99a;border-color:#5a4416;background:#251c08}
+.jobs-ind{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--gold2);cursor:pointer}
+.spin{width:12px;height:12px;border:2px solid var(--gold);border-right-color:transparent;border-radius:50%;animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.job{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:12.5px}
+.job .st{font-weight:600}.job.done .st{color:var(--ok)}.job.error .st{color:var(--err)}.job.running .st{color:var(--gold2)}
+.job ul{margin:6px 0 0 16px;padding:0;color:var(--muted)}
+.ltk-row{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--line2);border-radius:8px;padding:9px 12px;margin-bottom:6px}
+.ltk-row.on{border-left-color:var(--ok)}
+.ltk-row img{width:40px;height:40px;border-radius:6px;object-fit:cover;object-position:top;border:1px solid var(--line2)}
+.cmp-bg{position:fixed;inset:0;background:#05080d;display:none;z-index:46;flex-direction:column}
+.cmp-bg.show{display:flex}
+.cmp-h{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
+.cmp-h h2{margin:0;font-size:17px;color:var(--gold2);font-family:Cinzel,serif;letter-spacing:.04em}
+.cmp-body{flex:1;position:relative;min-height:0}
+.cmp-body canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.cmp-grid{position:absolute;inset:0;display:grid;pointer-events:none}
+.cmp-cell{position:relative;border-right:1px solid var(--line);display:flex;flex-direction:column;justify-content:space-between}
+.cmp-cell:last-child{border-right:0}
+.cmp-cell .top,.cmp-cell .bot{pointer-events:auto;padding:12px 14px;background:linear-gradient(180deg,rgba(5,8,13,.92),rgba(5,8,13,0))}
+.cmp-cell .bot{background:linear-gradient(0deg,rgba(5,8,13,.95),rgba(5,8,13,0));display:flex;flex-direction:column;gap:6px}
+.cmp-cell .nm{font-weight:700;font-size:15px;color:var(--gold2)}
+.cmp-cell .sk{font-size:12.5px;color:var(--teal)}
+.cmp-cell .msg{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center;padding:20px;pointer-events:none}
+.cmp-tray{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:35;background:#101a29;border:1px solid #7a6232;border-radius:12px;padding:8px 10px;display:none;gap:8px;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.cmp-tray.show{display:flex}
+.cmp-tray .it{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line2);border-radius:8px;padding:4px 8px;font-size:12.5px;max-width:220px}
+.cmp-tray .it span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmp-tray .it button{background:none;border:0;color:var(--muted);padding:0 2px}
+.btn.cmp-on{border-color:var(--gold);color:var(--gold2);background:#2a2312}
+@media (max-width:820px){.app{grid-template-columns:1fr}aside{display:none}header{grid-column:1}.group{grid-template-columns:1fr}.art{width:120px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">SKIN VAULT<small>LoL mod manager</small></div>
+    <div class="stats" id="stats"></div>
+    <div class="spacer"></div>
+    <div class="scanning" id="scanning" style="display:none"><span id="scanTxt">Scanning…</span><div class="progress"><i id="scanBar" style="width:0"></i></div></div>
+    <div class="jobs-ind" id="jobsInd" style="display:none" onclick="openJobs()"><div class="spin"></div><span id="jobsTxt"></span></div>
+    <button class="btn" onclick="select('__ltk')">🎮 LTK Manager</button>
+    <button class="btn" onclick="openIssues()">⚠ Issues</button>
+    <button class="btn" onclick="openDupes()">⧉ Duplicates</button>
+    <button class="btn gold" onclick="openOrganize()">✦ Organize library</button>
+    <button class="btn" onclick="rescan()">↻ Rescan</button>
+    <div class="menu">
+      <button class="btn" onclick="toggleMenu(event)">⋯</button>
+      <div class="menu-pop" id="menu">
+        <button onclick="filePick()">Import mod files…<small>Same as dragging files onto this window</small></button>
+        <button onclick="undo()">Undo last move<small>Reverses the last import / organize / dedupe</small></button>
+        <button onclick="updateData(false)">Update champion &amp; skin list<small>After a new patch / new champion</small></button>
+        <button onclick="updateData(true)">Rebuild file-path database<small>~230 MB download, improves skin detection for new skins</small></button>
+        <button onclick="openJobs()">Fix history<small>What the auto-fixer changed</small></button>
+        <button onclick="setGameDir()">Folders &amp; tools<small>League game, LtMAO-hai and LTK Manager locations</small></button>
+        <button onclick="api('/api/open',{path:''})">Open library folder</button>
+      </div>
+    </div>
+    <input type="file" id="filepick" multiple accept=".fantome,.zip,.client,.wad" style="display:none">
+  </header>
+  <aside>
+    <div class="side-top">
+      <input id="q" placeholder="Search champions or mods…" autocomplete="off">
+      <div class="toggles">
+        <button class="tg on" id="tgHas" onclick="toggle('hasMods')">With mods</button>
+        <button class="tg" id="tgIss" onclick="toggle('issuesOnly')">Has issues</button>
+        <button class="tg" id="tgAll" onclick="toggle('allSkins')">Show all skins</button>
+      </div>
+    </div>
+    <div class="champ-list" id="champList"></div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<div class="overlay" id="dropOverlay"><div class="drop-box"><h2>Drop to import</h2><div style="color:var(--muted)">.fantome · .zip · .wad.client — I'll sort them by champion &amp; skin</div></div></div>
+<div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()"><div class="modal" id="modal"></div></div>
+<div class="toasts" id="toasts"></div>
+<div class="cmp-bg" id="cmpBg">
+  <div class="cmp-h"><h2>3D Compare</h2><span class="sub" id="cmpSub" style="color:var(--muted);font-size:12.5px"></span><div class="spacer"></div>
+    <label style="display:flex;gap:6px;align-items:center;font-size:12.5px"><input type="checkbox" id="cmpAuto" checked onchange="V3C.setAuto(this.checked)"> Auto-rotate</label>
+    <label style="display:flex;gap:6px;align-items:center;font-size:12.5px" title="Show every model at the same height"><input type="checkbox" id="cmpNorm" onchange="V3C.setNormalize(this.checked)"> Same height</label>
+    <button class="btn small" onclick="V3C.reset()">Reset view</button>
+    <button class="btn small" onclick="closeCompare()">✕ Close</button></div>
+  <div class="cmp-body" id="cmpBody"><div class="cmp-grid" id="cmpGrid"></div></div>
+  <div style="padding:6px 18px;font-size:11.5px;color:var(--dim);border-top:1px solid var(--line)">Drag any panel to rotate all of them together · scroll to zoom · right-drag to pan</div>
+</div>
+<div class="cmp-tray" id="cmpTray"></div>
+<div class="v3d-bg" id="v3dBg"><div class="v3d">
+  <div class="v3d-stage" id="v3dStage"><div class="v3d-msg" id="v3dMsg">Loading…</div><div class="v3d-hint">Drag to rotate · scroll to zoom · right-drag to pan</div></div>
+  <div class="v3d-side" id="v3dSide"></div>
+</div></div>
+<div class="lightbox" id="lightbox" onclick="this.classList.remove('show')"><img id="lbImg" alt=""></div>
+
+<script type="importmap">{"imports":{"three":"/static/three.module.js","three/addons/controls/":"/static/addons/","three/addons/loaders/":"/static/addons/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { DDSLoader } from 'three/addons/loaders/DDSLoader.js';
+let renderer, scene, camera, controls, root, raf, autoRotate = true;
+const stage = () => document.getElementById('v3dStage');
+function init(){
+  if (renderer) return;
+  renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  stage().prepend(renderer.domElement);
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(35, 1, 1, 20000);
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.addEventListener('start', ()=>{ autoRotate=false; window.V3D_sync && window.V3D_sync(); });
+  scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x302418, 1.6));
+  const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(300, 600, 500); scene.add(key);
+  const rim = new THREE.DirectionalLight(0x9fc4ff, 0.9); rim.position.set(-400, 300, -500); scene.add(rim);
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:.35}));
+  ground.rotation.x = -Math.PI/2; ground.name='ground'; scene.add(ground);
+  new ResizeObserver(resize).observe(stage());
+}
+function resize(){
+  if (!renderer) return;
+  const r = stage().getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false); camera.aspect = r.width/Math.max(1,r.height); camera.updateProjectionMatrix();
+}
+function loop(){ raf = requestAnimationFrame(loop); if (root && autoRotate) root.rotation.y += 0.006; controls.update(); renderer.render(scene, camera); }
+const b64 = (s, T) => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return new T(u.buffer); };
+function build(m){
+  if (root){ scene.remove(root); root.traverse(o=>{ if(o.geometry) o.geometry.dispose(); if(o.material){ [].concat(o.material).forEach(x=>{ x.map&&x.map.dispose(); x.dispose(); }); } }); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(b64(m.positions, Float32Array), 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(b64(m.normals, Float32Array), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(b64(m.uvs, Float32Array), 2));
+  g.setIndex(new THREE.BufferAttribute(b64(m.indices, Uint16Array), 1));
+  const loader = new DDSLoader(); const cache = {};
+  const mats = m.submeshes.map((sm, i) => {
+    g.addGroup(sm.start, sm.count, i);
+    const mat = new THREE.MeshStandardMaterial({color: sm.tex ? 0xffffff : 0x8a8f99, roughness: .85, metalness: 0, side: THREE.DoubleSide, alphaTest: .3});
+    if (sm.tex){
+      if (!cache[sm.tex]){
+        cache[sm.tex] = loader.load(`/api/3d/tex?s=${m.session}&k=${sm.tex}`, t => { t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; }, undefined, () => {});
+        cache[sm.tex].colorSpace = THREE.SRGBColorSpace; cache[sm.tex].anisotropy = 4;
+      }
+      mat.map = cache[sm.tex];
+    }
+    mat.visible = !sm.hidden;
+    return mat;
+  });
+  const mesh = new THREE.Mesh(g, mats);
+  mesh.scale.set(-1, 1, 1);  // League meshes are mirrored on X
+  root = new THREE.Group(); root.add(mesh); scene.add(root);
+  g.computeBoundingBox(); const bb = g.boundingBox; const size = new THREE.Vector3(); bb.getSize(size); const c = new THREE.Vector3(); bb.getCenter(c);
+  mesh.position.set(c.x, -bb.min.y, -c.z);
+  const h = size.y, rad = Math.max(size.x, size.z);
+  const ground = scene.getObjectByName('ground'); ground.scale.setScalar(Math.max(rad*0.5, h*0.22));
+  controls.target.set(0, h*0.48, 0);
+  camera.position.set(0, h*0.6, Math.max(h, rad) * 2.1);
+  camera.near = Math.max(0.1, h/100); camera.far = h*100; camera.updateProjectionMatrix();
+  controls.update();
+  return mats;
+}
+// ---------------- 3D compare: one renderer, one shared camera, a scene per panel (scissor viewports)
+const C = {renderer:null, camera:null, controls:null, scenes:[], raf:0, auto:true, normalize:false, ro:null};
+function makeModel(m){
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(b64(m.positions, Float32Array), 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(b64(m.normals, Float32Array), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(b64(m.uvs, Float32Array), 2));
+  g.setIndex(new THREE.BufferAttribute(b64(m.indices, Uint16Array), 1));
+  const loader = new DDSLoader(); const cache = {};
+  const mats = m.submeshes.map((sm, i) => {
+    g.addGroup(sm.start, sm.count, i);
+    const mat = new THREE.MeshStandardMaterial({color: sm.tex ? 0xffffff : 0x8a8f99, roughness:.85, metalness:0, side:THREE.DoubleSide, alphaTest:.3});
+    if (sm.tex){
+      if (!cache[sm.tex]){ cache[sm.tex] = loader.load(`/api/3d/tex?s=${m.session}&k=${sm.tex}`, t=>{ t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; }, undefined, ()=>{}); cache[sm.tex].colorSpace = THREE.SRGBColorSpace; }
+      mat.map = cache[sm.tex];
+    }
+    mat.visible = !sm.hidden; return mat;
+  });
+  const mesh = new THREE.Mesh(g, mats); mesh.scale.set(-1,1,1);
+  g.computeBoundingBox(); const bb = g.boundingBox; const size = new THREE.Vector3(); bb.getSize(size); const c = new THREE.Vector3(); bb.getCenter(c);
+  mesh.position.set(c.x, -bb.min.y, -c.z);
+  const root = new THREE.Group(); root.add(mesh);
+  return {root, mats, h:size.y, rad:Math.max(size.x, size.z)};
+}
+function cmpScene(){
+  const sc = new THREE.Scene();
+  sc.add(new THREE.HemisphereLight(0xdfe8ff, 0x302418, 1.6));
+  const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(300,600,500); sc.add(key);
+  const rim = new THREE.DirectionalLight(0x9fc4ff, .9); rim.position.set(-400,300,-500); sc.add(rim);
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(1,64), new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:.35}));
+  ground.rotation.x = -Math.PI/2; sc.add(ground); sc.userData.ground = ground;
+  return sc;
+}
+function cmpInit(){
+  if (C.renderer) return;
+  const body = document.getElementById('cmpBody');
+  C.renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+  C.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+  C.renderer.outputColorSpace = THREE.SRGBColorSpace;
+  C.renderer.setScissorTest(true);
+  body.prepend(C.renderer.domElement);
+  C.camera = new THREE.PerspectiveCamera(32, 1, 1, 20000);
+  C.controls = new OrbitControls(C.camera, C.renderer.domElement);
+  C.controls.enableDamping = true;
+  C.controls.addEventListener('start', ()=>{ C.auto = false; const el=document.getElementById('cmpAuto'); if(el) el.checked=false; });
+  C.ro = new ResizeObserver(cmpResize); C.ro.observe(body);
+}
+function cmpResize(){
+  if (!C.renderer) return;
+  const r = document.getElementById('cmpBody').getBoundingClientRect();
+  C.renderer.setSize(r.width, r.height, false);
+  const n = Math.max(1, C.scenes.length);
+  C.camera.aspect = (r.width / n) / Math.max(1, r.height); C.camera.updateProjectionMatrix();
+}
+function cmpFrame(){
+  let h = 0, rad = 0;
+  C.scenes.forEach(s=>{ if (s.model){ const k = C.normalize ? (s.base / s.model.h) : 1; s.model.root.scale.setScalar(k); h = Math.max(h, s.model.h*k); rad = Math.max(rad, s.model.rad*k); s.scene.userData.ground.scale.setScalar(Math.max(s.model.rad*k*0.5, s.model.h*k*0.22)); } });
+  if (!h) return;
+  C.controls.target.set(0, h*0.48, 0);
+  C.camera.position.set(0, h*0.6, Math.max(h, rad) * 2.3);
+  C.camera.near = Math.max(0.1, h/100); C.camera.far = h*100; C.camera.updateProjectionMatrix(); C.controls.update();
+}
+function cmpLoop(){
+  C.raf = requestAnimationFrame(cmpLoop);
+  C.controls.update();
+  const body = document.getElementById('cmpBody'); const W = body.clientWidth, Hh = body.clientHeight; const n = C.scenes.length || 1; const w = W / n;
+  C.renderer.setClearColor(0x000000, 0); C.renderer.setScissor(0,0,W,Hh); C.renderer.setViewport(0,0,W,Hh); C.renderer.clear();
+  C.scenes.forEach((s, i) => {
+    if (s.model && C.auto) s.model.root.rotation.y += 0.006;
+    C.renderer.setViewport(i*w, 0, w, Hh); C.renderer.setScissor(i*w, 0, w, Hh);
+    C.renderer.render(s.scene, C.camera);
+  });
+}
+window.V3C = {
+  open(n){
+    cmpInit();
+    C.scenes.forEach(s=>s.scene.traverse(o=>{ if(o.geometry) o.geometry.dispose(); }));
+    C.scenes = Array.from({length:n}, ()=>({scene:cmpScene(), model:null}));
+    document.getElementById('cmpBg').classList.add('show');
+    C.auto = document.getElementById('cmpAuto').checked;
+    cmpResize(); cancelAnimationFrame(C.raf); cmpLoop();
+  },
+  set(i, m){
+    const s = C.scenes[i]; if (!s) return null;
+    s.model = makeModel(m); s.scene.add(s.model.root);
+    const hs = C.scenes.filter(x=>x.model).map(x=>x.model.h); const base = Math.max(...hs);
+    C.scenes.forEach(x=>x.base = base);
+    const ry = C.scenes.find(x=>x.model && x!==s)?.model.root.rotation.y || 0; s.model.root.rotation.y = ry;
+    cmpFrame(); return s.model.mats;
+  },
+  close(){ document.getElementById('cmpBg').classList.remove('show'); cancelAnimationFrame(C.raf); },
+  setAuto(v){ C.auto = v; },
+  setNormalize(v){ C.normalize = v; cmpFrame(); },
+  reset(){ C.scenes.forEach(s=>{ if(s.model) s.model.root.rotation.y = 0; }); cmpFrame(); }
+};
+window.V3D = {
+  show(){ init(); document.getElementById('v3dBg').classList.add('show'); resize(); cancelAnimationFrame(raf); loop(); },
+  hide(){ document.getElementById('v3dBg').classList.remove('show'); cancelAnimationFrame(raf); },
+  build, setAuto(v){ autoRotate = v; }, get auto(){ return autoRotate; },
+  reset(){ if(root) root.rotation.y = 0; }
+};
+</script>
+<script>
+const S = {data:null, champs:{}, mods:[], sel:null, filters:{hasMods:true, issuesOnly:false, allSkins:false}, q:'', lastScan:null, since:Date.now()/1000, flash:null};
+const DD = v => `https://ddragon.leagueoflegends.com/cdn/${v}`;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtSize = b => b>=1<<30 ? (b/(1<<30)).toFixed(1)+' GB' : b>=1<<20 ? (b/(1<<20)).toFixed(1)+' MB' : Math.max(1,Math.round(b/1024))+' KB';
+const fmtDate = t => t ? new Date(t*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}) : '';
+const CATS = ['Unsorted','Maps','Items','Emotes','Other'];
+
+async function api(url, body){
+  const r = await fetch(url, body===undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json','X-SkinVault':'1'}, body:JSON.stringify(body)});
+  return r.json();
+}
+async function load(){
+  const d = await api('/api/state');
+  if (d.setup){ renderSetup(d); return false; }
+  S.data = d; S.lastScan = d.last_scan;
+  S.champs = Object.fromEntries(d.champions.map(c=>[c.id,c]));
+  S.mods = d.mods;
+  renderStats(); renderSide(); renderMain();
+  return true;
+}
+function renderSetup(d){
+  document.querySelector('.app').style.gridTemplateColumns = '1fr';
+  document.querySelector('aside').style.display = 'none';
+  document.querySelectorAll('header .btn, header .menu, #stats').forEach(e=>e.style.display='none');
+  const row = (label, id, val, hint) => `<label class="sub" style="display:block;margin-top:14px">${label}</label>
+    <input id="${id}" style="width:100%;margin-top:4px" value="${esc(val||'')}" placeholder="${esc(hint||'')}">`;
+  document.getElementById('main').innerHTML = `<div style="max-width:720px;margin:50px auto;padding:0 20px">
+    <h1 style="font-family:Cinzel,serif;color:var(--gold2);margin:0 0 6px">Welcome to Skin Vault</h1>
+    <p style="color:var(--muted);margin:0 0 20px">One quick step: tell Skin Vault where your skin mods live. Everything else is detected automatically and can be changed later under ⋯ → Folders &amp; tools.</p>
+    <div class="card" style="padding:20px">
+      ${row('Your skin mod folder (it will be created if it doesn\'t exist)', 'suLib', d.suggest_library, 'e.g. D:\\LoL skins')}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${(d.candidates||[]).map(c=>`<button class="tg" onclick="document.getElementById('suLib').value=this.dataset.v" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+      ${row('League of Legends folder ' + (d.game_dir?'<span style="color:var(--ok)">✔ found</span>':'<span style="color:var(--warn)">(not found - needed for 3D view and skin matching)</span>'), 'suGame', d.game_dir, 'e.g. C:\\Riot Games\\League of Legends\\Game')}
+      ${row('LtMAO-hai folder <span style="color:var(--dim)">(optional - for auto-fix and .zip → .fantome)</span> ' + (d.ltmao_dir?'<span style="color:var(--ok)">✔ found</span>':''), 'suLt', d.ltmao_dir, 'folder that contains start.bat')}
+      ${row('LTK Manager data folder <span style="color:var(--dim)">(optional)</span> ' + (d.ltk_dir?'<span style="color:var(--ok)">✔ found</span>':''), 'suLtk', d.ltk_dir, '%APPDATA%\\dev.leaguetoolkit.manager')}
+      <div id="suMsg" style="margin-top:14px;color:#ffb3b5;font-size:13px"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn gold" id="suGo" onclick="doSetup()">Start Skin Vault →</button></div>
+    </div>
+    <p style="color:var(--dim);font-size:12px;margin-top:14px">Skin Vault ${esc(d.version||'')} · Python ${esc(d.python||'')} · runs only on this computer</p></div>`;
+}
+async function doSetup(){
+  const v = id => document.getElementById(id).value.trim();
+  document.getElementById('suGo').disabled = true; document.getElementById('suGo').textContent = 'Starting…';
+  const r = await api('/api/setup', {library:v('suLib'), game_dir:v('suGame'), ltmao_dir:v('suLt'), ltk_dir:v('suLtk')});
+  if (!r.ok){ document.getElementById('suMsg').textContent = r.msg; document.getElementById('suGo').disabled=false; document.getElementById('suGo').textContent='Start Skin Vault →'; return; }
+  document.getElementById('suMsg').style.color = 'var(--muted)'; document.getElementById('suMsg').textContent = 'Scanning your mods for the first time…';
+  for (let i=0;i<120;i++){ await new Promise(r=>setTimeout(r,1000)); try{ const d = await api('/api/state'); if (!d.setup){ location.reload(); return; } }catch(e){} }
+}
+function modCategory(m){
+  if (m.champ) return m.champ;
+  const t = (m.type||'');
+  if (t==='Map') return 'Maps'; if (t==='Items') return 'Items'; if (t==='Emote') return 'Emotes';
+  const top = (m.top||'').toLowerCase();
+  if (['map','maps'].includes(top)) return 'Maps'; if (top==='items') return 'Items'; if (top==='emotes') return 'Emotes';
+  if (top==='other') return 'Other';
+  return 'Unsorted';
+}
+function modsFor(key){ return S.mods.filter(m=>modCategory(m)===key); }
+function sevOf(list){ return list.some(m=>m.severity==='error')?'error':list.some(m=>m.severity==='warn')?'warn':null; }
+function matchQ(m){ const q=S.q; if(!q) return true; return (m.name+' '+m.filename+' '+(m.author||'')+' '+(m.applies_label||'')).toLowerCase().includes(q); }
+
+function renderStats(){
+  const ms=S.mods, e=ms.filter(m=>m.severity==='error').length, w=ms.filter(m=>m.severity==='warn').length;
+  const champsWith=new Set(ms.filter(m=>m.champ).map(m=>m.champ)).size;
+  document.getElementById('stats').innerHTML = `<span><b>${ms.length}</b> mods</span><span><b>${champsWith}</b> champions</span><span class="e"><b>${e}</b> errors</span><span class="w"><b>${w}</b> warnings</span>`;
+}
+function renderSide(){
+  const el = document.getElementById('champList');
+  const q = S.q;
+  let rows = Object.values(S.champs).sort((a,b)=>a.name.localeCompare(b.name)).map(c=>{
+    const ms = modsFor(c.id);
+    return {c, ms, n:ms.length, sev:sevOf(ms), qhit: q && ms.some(matchQ)};
+  });
+  rows = rows.filter(r=>{
+    if (q) return r.c.name.toLowerCase().includes(q) || r.qhit;
+    if (S.filters.hasMods && !r.n) return false;
+    if (S.filters.issuesOnly && !r.sev) return false;
+    return true;
+  });
+  const cats = CATS.map(k=>({k, ms:modsFor(k)})).filter(x=>x.ms.length && (!q || x.ms.some(matchQ)) && (!S.filters.issuesOnly || sevOf(x.ms)));
+  let h = '';
+  const nm = newMods();
+  if (nm.length && !q){
+    h += `<div class="crow ${S.sel==='__new'?'sel':''}" onclick="select('__new')"><div class="ph" style="color:#1a1300;background:var(--gold)">✨</div><div class="nm">Recently added</div><span class="newpill">${nm.length} NEW</span></div>`;
+  }
+  if (cats.length){
+    h += `<div class="sec-label">Other</div>`;
+    h += cats.map(x=>`<div class="crow ${S.sel===x.k?'sel':''}" onclick="select('${x.k}')"><div class="ph">${x.k==='Unsorted'?'?':x.k[0]}</div><div class="nm">${x.k}</div>${sevOf(x.ms)?`<span class="dot ${sevOf(x.ms)}"></span>`:''}<span class="badge">${x.ms.length}</span></div>`).join('');
+  }
+  h += `<div class="sec-label">Champions · ${rows.length}</div>`;
+  h += rows.map(r=>`<div class="crow ${S.sel===r.c.id?'sel':''} ${r.n?'':'empty'}" onclick="select('${r.c.id}')">
+      <img loading="lazy" src="${DD(S.data.ddragon)}/img/champion/${r.c.icon}" alt="">
+      <div class="nm">${esc(r.c.name)}</div>${r.ms.some(isNew)?'<span class="newpill">NEW</span>':''}${r.sev?`<span class="dot ${r.sev}"></span>`:''}${r.n?`<span class="badge">${r.n}</span>`:''}</div>`).join('');
+  el.innerHTML = h || '<div style="padding:20px;color:var(--dim)">No matches</div>';
+}
+function select(k){ S.sel=k; renderSide(); renderMain(); document.getElementById('main').scrollTop=0; }
+function toggle(f){ S.filters[f]=!S.filters[f]; document.getElementById({hasMods:'tgHas',issuesOnly:'tgIss',allSkins:'tgAll'}[f]).classList.toggle('on',S.filters[f]); renderSide(); renderMain(); }
+
+function loadingArt(champ, num){ return `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${champ.id}_${num}.jpg`; }
+function cdArt(champ, num){ return `https://cdn.communitydragon.org/latest/champion/${champ.key}/splash-art/centered/skin/${num}`; }
+
+function groupMods(champ, ms){
+  const groups = new Map();
+  const add = (key, info, m) => { if(!groups.has(key)) groups.set(key, {...info, mods:[]}); if(m) groups.get(key).mods.push(m); };
+  for (const m of ms){
+    const t = m.type||'Skin';
+    if (t.startsWith('Voice')) add('voice',{title:'Voice & SFX',icon:'🔊',order:1000},m);
+    else if (t==='Loading screen') add('load',{title:'Loading screens',icon:'🖼',order:1001},m);
+    else if (t.startsWith('Pack')) add('pack',{title:'Mod packs',icon:'📦',order:1003},m);
+    else if (m.applies_to!==null && m.applies_to!==undefined) add('s'+m.applies_to,{num:m.applies_to,title:m.applies_label||('Skin #'+m.applies_to),order:m.applies_to},m);
+    else if (m.applies_source==='multi') add('multi',{title:'Changes multiple skins',icon:'✦',order:998,multi:true},m);
+    else add('unk',{title:'Unknown skin',icon:'?',order:999,unknown:true},m);
+  }
+  if (champ && S.filters.allSkins) for (const s of champ.skins) add('s'+s.num,{num:s.num,title:s.name,order:s.num});
+  for (const g of groups.values()) g.mods.sort((a,b)=>(isNew(b)-isNew(a)) || ((b.added_at||0)-(a.added_at||0)));
+  return [...groups.values()].sort((a,b)=>a.order-b.order);
+}
+
+function issueHtml(i){ const sym={error:'!',warn:'!',info:'i'}[i.level]; return `<div class="issue ${i.level}"><span class="i">${sym}</span><span>${esc(i.msg)}</span></div>`; }
+function isNew(m){
+  if (!m.added_at || !S.data) return false;
+  const now = Date.now()/1000;
+  return m.added_at > (S.data.seen_before||0) && now - m.added_at < (S.data.new_days||3)*86400;
+}
+function ago(t){ const d = Date.now()/1000 - t; if (d < 90) return 'just now'; if (d < 3600) return Math.round(d/60)+' min ago'; if (d < 86400) return Math.round(d/3600)+' h ago'; return Math.round(d/86400)+' d ago'; }
+function newMods(){ return S.mods.filter(isNew).sort((a,b)=>b.added_at-a.added_at); }
+async function markSeen(){ const r = await api('/api/seen',{}); S.data.seen_before = r.seen_before; toast('Cleared the NEW tags'); renderSide(); renderMain(); }
+function modHtml(m){
+  const champ = S.champs[m.champ];
+  const ext = m.kind==='folder' ? 'folder' : (m.filename.match(/\.(wad\.client|fantome|zip|wad|rar|7z)$/i)||['',''])[1];
+  const chips = [
+    isNew(m) ? `<span class="chip new" title="Added ${new Date(m.added_at*1000).toLocaleString()}">✨ NEW · ${ago(m.added_at)}</span>` : '',
+    S.sel==='__new' && champ ? `<span class="chip" style="color:var(--gold2)">${esc(champ.name)}</span>` : '',
+    `<span class="chip t">${esc(m.type)}</span>`,
+    `<span class="chip">${esc(ext)}</span>`,
+    m.size?`<span class="chip">${fmtSize(m.size)}</span>`:'',
+    m.mtime?`<span class="chip">${fmtDate(m.mtime)}</span>`:'',
+    (m.looks_label && m.looks_like!==m.applies_to)?`<span class="chip looks">Looks like: ${esc(m.looks_label)}</span>`:'',
+    (m.skins&&m.skins.length>1&&champ)?`<span class="chip">Touches skins: ${m.skins.slice(0,10).join(', ')}${m.skins.length>10?'…':''}</span>`:'',
+    m.applies_source==='name'?`<span class="chip" title="Detected from the mod name, not its files">guessed from name</span>`:'',
+    folderChip(m),
+    ltkBadge(m),
+  ].join('');
+  const looksSrc = (champ && m.looks_like!=null && m.looks_like!==m.applies_to) ? loadingArt(champ, m.looks_like) : null;
+  const thumb = m.has_image ? `<img class="thumb" loading="lazy" src="/api/image?id=${m.id}" onclick="lightbox(this.src)" onerror="this.outerHTML='<div class=&quot;thumb none&quot;>no img</div>'">`
+    : looksSrc ? `<img class="thumb" loading="lazy" title="Official art of ${esc(m.looks_label)} (what this mod looks like)" src="${looksSrc}" style="object-position:top" onclick="lightbox(this.src)" onerror="this.outerHTML='<div class=&quot;thumb none&quot;>no preview</div>'">`
+    : `<div class="thumb none">no preview</div>`;
+  const kids = (m.children||[]).length ? `<div class="children">${m.children.map(c=>`<div>• ${esc(c.name)} ${c.champ?'→ <b>'+esc(S.champs[c.champ]?.name||c.champ)+'</b>':''} ${c.applies_label?'· '+esc(c.applies_label):''}</div>`).join('')}</div>` : '';
+  const acts = [
+    m.champ && !/^(Voice|Loading|Pack)/.test(m.type||'') && !/\.(7z|rar)$/i.test(m.filename) ? `<button class="btn small primary" onclick="open3D({id:'${m.id}'})">🧊 3D view</button>` + cmpBtn({id:m.id}) : '',
+    m.champ && !/^(Voice|Loading|Pack)/.test(m.type||'') && !/\.(7z|rar)$/i.test(m.filename) ? `<button class="btn small ${m.outdated?'gold':''}" onclick="fixDlg('${m.id}')">🛠 Auto-fix</button>` : '',
+    `<button class="btn small" onclick="openMod('${m.id}')">📂 Show in folder</button>`,
+    (m.children||[]).length?`<button class="btn small gold" onclick="unpack('${m.id}')">Unpack</button>`:'',
+    `<button class="btn small" onclick="assignDlg('${m.id}')">Reassign</button>`,
+    (/\.zip$/i.test(m.filename) && m.champ && !(m.children||[]).length && !S.ltkStage[m.id]) ? `<button class="btn small" title="Convert to .fantome now (LTK Manager installs these faster)" onclick="convertMods(['${m.id}'])">⇢ .fantome</button>` : '',
+    `<button class="btn small" style="color:#ffb3b5" title="Send to the Recycle Bin" onclick="deleteDlg(['${m.id}'])">🗑 Delete</button>`,
+    /\.(fantome|zip|wad\.client)$/i.test(m.filename) ? `<button class="btn small" title="Unpack with LtMAO into readable files and open the folder" onclick="unpackLt('${m.id}')">📦 Unpack</button>` : '',
+  ].join('');
+  return `<div class="mod sev-${m.severity} ${S.flash===m.id?'flash':''} ${isNew(m)?'is-new':''}" id="mod-${m.id}">
+    ${thumb}
+    <div><div class="mt">${esc(m.name)}</div>
+      <div class="ms">${m.author?'by '+esc(m.author)+' · ':''}${m.version?'v'+esc(m.version)+' · ':''}${esc(m.rel)}</div>
+      ${m.description?`<div class="ms" style="word-break:normal">${esc(m.description).slice(0,220)}</div>`:''}
+      <div class="chips">${chips}</div>
+      ${(m.issues||[]).map(issueHtml).join('')}
+      ${kids}
+    </div>
+    <div class="acts">${acts}</div></div>`;
+}
+
+function renderMain(){
+  const el = document.getElementById('main');
+  if (!S.data){ el.innerHTML=''; return; }
+  if (!S.sel) return renderHome(el);
+  if (S.sel==='__ltk') return renderLtk(el);
+  if (S.sel==='__new') return renderNew(el);
+  const champ = S.champs[S.sel];
+  let ms = modsFor(S.sel).filter(matchQ);
+  if (S.filters.issuesOnly) ms = ms.filter(m=>m.severity==='error'||m.severity==='warn');
+  const groups = groupMods(champ, ms);
+  let h = '';
+  if (champ){
+    h += `<div class="hero" style="background-image:url('https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${champ.id}_0.jpg')"><div class="hero-in">
+      <div><h1>${esc(champ.name)}</h1><div class="sub">${esc(champ.title)} · ${ms.length} mod${ms.length===1?'':'s'} · ${champ.skins.length} official skins</div></div>
+      </div></div>`;
+  } else {
+    h += `<div class="hero" style="height:120px"><div class="hero-in"><div><h1>${esc(S.sel)}</h1><div class="sub">${ms.length} mods without a champion</div></div></div></div>`;
+  }
+  h += `<div class="content">`;
+  if (!groups.length) h += `<div class="empty-state">No mods for ${esc(champ?champ.name:S.sel)} yet. Drag a .fantome or .zip anywhere on this window to add one.</div>`;
+  for (const g of groups){
+    const art = champ && g.num!==undefined ? `<img loading="lazy" src="${loadingArt(champ,g.num)}" onerror="if(!this.dataset.f){this.dataset.f=1;this.src='${cdArt(champ,g.num)}'}else{this.replaceWith(Object.assign(document.createElement('div'),{className:'ic',textContent:'?'}))}" alt="">` : `<div class="ic">${g.icon||'?'}</div>`;
+    const conflict = g.mods.filter(m=>m.type==='Skin' && !m.dup_of).length>1 && g.num!==undefined;
+    const pick = champ && g.num!==undefined ? `<div class="pick">🎮 In game, select: <b>${esc(g.title)}</b>${g.num!==undefined?` <span style="opacity:.6">(#${g.num})</span>`:''}</div>${conflict?'<span class="conf">⚠ Only one of these can be active at a time</span>':''}`
+             : g.unknown ? `<div class="pick" style="color:var(--warn);border-color:#5a4416;background:#251c08">Couldn't tell which skin — use Reassign</div>` : '';
+    h += `<div class="group ${g.mods.length?'':'nomods'}"><div class="art">${art}</div><div>
+        <div class="gh"><h3>${esc(g.title)}</h3><span class="num">${g.mods.length} mod${g.mods.length===1?'':'s'}</span>${champ && g.num!==undefined ? `<span style="margin-left:auto;display:flex;gap:6px">${(()=>{ const add = g.mods.filter(m=>S.ltk.found && !ltkFor(m) && !S.ltkAdded[m.id] && !(S.ltkAdding||[]).includes(m.id) && /\.(fantome|zip)$/i.test(m.filename) && !m.dup_of); return add.length>1 ? `<button class="btn small" onclick="ltkAdd(${JSON.stringify(add.map(m=>m.id)).replace(/"/g,'&quot;')})">＋ Add ${add.length} to LTK</button>` : ''; })()}<button class="btn small" onclick="open3D({champ:'${champ.id}',skin:${g.num}})">🧊 Original in 3D</button>${cmpBtn({champ:champ.id, skin:g.num})}</span>`:''}</div>${pick}
+        <div class="mods">${g.mods.map(modHtml).join('') || '<div style="color:var(--dim);font-size:13px">No mods for this skin</div>'}</div></div></div>`;
+  }
+  h += `</div>`;
+  el.innerHTML = h;
+  if (S.flash){ const n=document.getElementById('mod-'+S.flash); if(n) n.scrollIntoView({block:'center'}); S.flash=null; }
+}
+
+function renderNew(el){
+  const ms = newMods().filter(matchQ);
+  const day = t => { const d = new Date(t*1000), n = new Date(); const diff = Math.floor((new Date(n.toDateString()) - new Date(d.toDateString()))/86400000); return diff===0?'Today':diff===1?'Yesterday':d.toLocaleDateString(undefined,{weekday:'long', month:'short', day:'numeric'}); };
+  const groups = {}; ms.forEach(m=>{ const k = day(m.added_at); (groups[k]=groups[k]||[]).push(m); });
+  el.innerHTML = `<div class="hero" style="height:130px"><div class="hero-in"><div><h1>Recently added</h1><div class="sub">${ms.length} new mod${ms.length===1?'':'s'} in the last ${S.data.new_days||3} days</div></div>
+      <div class="meta" style="margin-left:auto"><button class="btn small" onclick="markSeen()">✓ Mark all as seen</button></div></div></div>
+    <div class="content">${ms.length?'':'<div class="empty-state">Nothing new. Drop mods on this window and they show up here.</div>'}
+    ${Object.entries(groups).map(([k,list])=>`<div class="sec-label" style="padding:6px 0 8px">${esc(k)} · ${list.length}</div><div class="mods" style="margin-bottom:18px">${list.map(m=>{
+        const c = S.champs[m.champ];
+        const art = c && m.applies_to!=null ? `<img loading="lazy" src="${loadingArt(c,m.applies_to)}" style="width:44px;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--line2);flex:none" onerror="this.style.display='none'">` : '';
+        return `<div style="display:flex;gap:10px;align-items:stretch">${art}<div style="flex:1;min-width:0">${modHtml(m)}</div></div>`; }).join('')}</div>`).join('')}
+    </div>`;
+}
+function renderHome(el){
+  const ms=S.mods, e=ms.filter(m=>m.severity==='error').length, w=ms.filter(m=>m.severity==='warn').length;
+  const dup=ms.filter(m=>m.dup_of).length, uns=ms.filter(m=>!m.champ).length;
+  const plan = S.planCount;
+  const evs = (S.events||[]).slice(-12).reverse();
+  el.innerHTML = `<div class="empty-state">
+    <div class="drop-hint"><h2>Drop new skin mods anywhere</h2>
+      <div>Drag .fantome / .zip / .wad.client files onto this window — or save downloads straight into<br><code>${esc(S.data.drop_dir)}</code><br>Each one is identified and moved into <code>Champion\\Skin\\</code> automatically.</div></div>
+    <div class="cards">
+      <div class="card"><div class="v">${ms.length}</div><div class="l">mods indexed</div></div>
+      <div class="card e" onclick="openIssues('error')" style="cursor:pointer"><div class="v">${e}</div><div class="l">mods with errors</div></div>
+      <div class="card w" onclick="openIssues('warn')" style="cursor:pointer"><div class="v">${w}</div><div class="l">mods with warnings</div></div>
+      <div class="card" onclick="openDupes()" style="cursor:pointer"><div class="v">${dup}</div><div class="l">duplicates</div></div>
+      <div class="card" onclick="select('Unsorted')" style="cursor:pointer"><div class="v">${uns}</div><div class="l">no champion detected</div></div>
+      <div class="card w" onclick="openIssues('warn')" style="cursor:pointer"><div class="v">${ms.filter(m=>m.outdated).length}</div><div class="l">outdated (auto-fixable)</div></div>
+      <div class="card" onclick="select('__new')" style="cursor:pointer"><div class="v" style="color:var(--gold)">${newMods().length}</div><div class="l">✨ recently added</div></div>
+      <div class="card" onclick="if(zipCount()) convertMods([], true)" style="cursor:pointer" title="LTK Manager installs .fantome files faster than .zip"><div class="v" style="color:var(--gold2)">${zipCount()}</div><div class="l">.zip mods → click to convert to .fantome</div></div>
+      <div class="card" onclick="select('__ltk')" style="cursor:pointer"><div class="v" style="color:var(--ok)">${(S.ltk.mods||[]).filter(m=>m.enabled).length}</div><div class="l">enabled in LTK Manager</div></div>
+    </div>
+    ${S.data.loose && S.data.loose.length?`<div style="margin-top:18px;font-size:12.5px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px"><b>Skipped loose files</b> (not packaged mods - they were extracted straight into a folder):${S.data.loose.map(x=>`<div class="path">• ${esc(x)}</div>`).join('')}</div>`:''}
+    <div class="recent"><h4>Recent imports</h4>${evs.length?evs.map(evHtml).join(''):'<div style="color:var(--dim);font-size:13px">Nothing imported this session yet.</div>'}</div>
+    <p style="margin-top:28px;font-size:12px;color:var(--dim)">Pick a champion on the left to see their mods grouped by the skin you need to select in game.</p>
+  </div>`;
+}
+function evHtml(e){ return `<div class="ev" onclick="${e.champ?`goMod('${e.champ}','${e.id||''}')`:''}">${e.ok?(e.duplicate?'⧉':'✔'):'✖'} <b>${esc(e.file)}</b><div style="color:var(--muted);font-size:12px">${esc(e.msg)}</div></div>`; }
+function goMod(champ,id){ S.flash=id; select(champ); }
+
+// ---------- modals
+function modal(html){ document.getElementById('modal').innerHTML=html; document.getElementById('modalBg').classList.add('show'); }
+function closeModal(){ document.getElementById('modalBg').classList.remove('show'); }
+function openIssues(level){
+  let rows = S.mods.filter(m=>m.issues && m.issues.some(i=>i.level!=='info'||level==='info'));
+  if (level && level!=='info') rows = rows.filter(m=>m.severity===level);
+  rows.sort((a,b)=>({error:0,warn:1,info:2,ok:3}[a.severity]-{error:0,warn:1,info:2,ok:3}[b.severity]) || a.rel.localeCompare(b.rel));
+  modal(`<div class="modal-h"><h2>Issues</h2><span class="badge">${rows.length}</span><div class="spacer"></div>
+      <button class="btn small gold" onclick="fixAllOutdated()">🛠 Auto-fix all outdated (${S.mods.filter(m=>m.outdated&&!m.dup_of).length})</button>
+      <button class="btn small" onclick="openIssues()">All</button><button class="btn small" onclick="openIssues('error')">Errors</button><button class="btn small" onclick="openIssues('warn')">Warnings</button><button class="btn small" onclick="openIssues('info')">Incl. info</button>
+      <button class="btn small" onclick="closeModal()">✕</button></div>
+    <div class="modal-b"><table><tr><th>Mod</th><th>Champion</th><th>Problems</th></tr>
+    ${rows.map(m=>`<tr class="click" onclick="closeModal();goMod('${modCategory(m)}','${m.id}')"><td><b>${esc(m.name)}</b><div class="path">${esc(m.rel)}</div></td><td>${esc(S.champs[m.champ]?.name||'—')}</td>
+      <td>${m.issues.filter(i=>level==='info'||i.level!=='info').map(issueHtml).join('')}</td></tr>`).join('')}</table></div>`);
+}
+function openDupes(){
+  const rows = S.mods.filter(m=>m.dup_of);
+  const byId = Object.fromEntries(S.mods.map(m=>[m.id,m]));
+  modal(`<div class="modal-h"><h2>Duplicates</h2><span class="badge">${rows.length}</span><div class="spacer"></div><button class="btn small" onclick="closeModal()">✕</button></div>
+    <div class="modal-b">${rows.length?`<p style="color:var(--muted);margin-top:0">The copy on the right is kept. Duplicates are <b>moved</b> into <code>_Duplicates</code> (nothing is deleted) — empty that folder yourself once you're happy.</p>
+    <table><tr><th>Duplicate (will move)</th><th>Size</th><th>Keeping</th></tr>${rows.map(m=>`<tr><td class="path">${esc(m.rel)}</td><td>${fmtSize(m.size||0)}</td><td class="path">${esc(byId[m.dup_of]?.rel||'')}</td></tr>`).join('')}</table>`:'<p>No duplicates found.</p>'}</div>
+    <div class="modal-f"><button class="btn" onclick="closeModal()">Close</button>${rows.length?`<button class="btn" style="border-color:var(--err);color:#ffb3b5" onclick="closeModal();deleteDlg(${JSON.stringify(rows.map(m=>m.id)).replace(/"/g,'&quot;')})">🗑 Delete ${rows.length} duplicates</button><button class="btn gold" onclick="doDedupe()">Move ${rows.length} duplicates to _Duplicates</button>`:''}</div>`);
+}
+async function doDedupe(){ closeModal(); toast('Moving duplicates…'); const r=await api('/api/dedupe',{}); toast(`Moved ${r.moved} duplicate(s) to _Duplicates. Use ⋯ → Undo if needed.`); await load(); }
+async function openOrganize(){
+  modal(`<div class="modal-h"><h2>Organize library</h2></div><div class="modal-b">Building plan…</div>`);
+  const plan = await api('/api/organize/plan');
+  S.plan = plan;
+  modal(`<div class="modal-h"><h2>Organize library</h2><span class="badge">${plan.length}</span><div class="spacer"></div><button class="btn small" onclick="closeModal()">✕</button></div>
+    <div class="modal-b">${plan.length?`<p style="color:var(--muted);margin-top:0">Moves each mod into <code>Champion\\Skin\\</code> so the folders match what you see here. Duplicates and packs are left alone. Everything is logged — <b>⋯ → Undo last move</b> puts it all back.</p>
+      <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="checkbox" checked onchange="document.querySelectorAll('.pl').forEach(c=>c.checked=this.checked)"> Select all</label>
+      <table><tr><th></th><th>From</th><th>To</th></tr>${plan.map(p=>`<tr><td><input type="checkbox" class="pl" value="${p.id}" checked></td><td class="path">${esc(p.from)}</td><td class="path" style="color:var(--text)">${esc(p.to)}</td></tr>`).join('')}</table>`:'<p>Everything is already in the right place. ✔</p>'}</div>
+    <div class="modal-f"><button class="btn" onclick="closeModal()">Cancel</button>${plan.length?`<button class="btn gold" onclick="doOrganize()">Move selected</button>`:''}</div>`);
+}
+async function doOrganize(){
+  const ids=[...document.querySelectorAll('.pl:checked')].map(c=>c.value);
+  closeModal(); toast(`Moving ${ids.length} mods…`);
+  const r = await api('/api/organize/apply',{ids}); toast(`Organized ${r.moved} mod(s).`); await load();
+}
+function assignDlg(id){
+  const m = S.mods.find(x=>x.id===id);
+  const opts = Object.values(S.champs).sort((a,b)=>a.name.localeCompare(b.name)).map(c=>`<option value="${c.id}" ${c.id===m.champ?'selected':''}>${esc(c.name)}</option>`).join('');
+  modal(`<div class="modal-h"><h2>Reassign “${esc(m.name)}”</h2><div class="spacer"></div><button class="btn small" onclick="closeModal()">✕</button></div>
+    <div class="modal-b"><p style="color:var(--muted);margin-top:0">Pick the champion and the in-game skin this mod replaces. The file is moved to the matching folder.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap"><select id="asC" onchange="fillSkins()">${opts}<option value="" ${m.champ?'':'selected'}>— choose —</option></select><select id="asS"></select></div></div>
+    <div class="modal-f"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="doAssign('${id}')">Move</button></div>`);
+  window._asCur = m; fillSkins();
+}
+function fillSkins(){
+  const c=S.champs[document.getElementById('asC').value], m=window._asCur;
+  document.getElementById('asS').innerHTML = c ? `<option value="">Unknown / multiple</option>`+c.skins.map(s=>`<option value="${s.num}" ${m.applies_to===s.num&&m.champ===c.id?'selected':''}>${esc(s.name)} (#${s.num})</option>`).join('') : '';
+}
+async function doAssign(id){
+  const champ=document.getElementById('asC').value, sv=document.getElementById('asS').value;
+  if(!champ) return;
+  closeModal(); const r = await api('/api/assign',{id, champ, skin: sv===''?null:Number(sv)});
+  toast(r.ok?`Moved to ${r.to}`:'Move failed', r.ok?'':'bad'); await load(); select(champ);
+}
+async function unpack(id){ toast('Unpacking…'); const r=await api('/api/unpack',{id}); (r.results||[]).forEach(showResult); await load(); }
+async function openMod(id){ api('/api/open',{id}); }
+async function rescan(){ await api('/api/rescan',{}); toast('Rescanning library…'); }
+async function undo(){ closeMenus(); const r=await api('/api/undo',{}); toast(r.msg); await load(); }
+async function updateData(h){ closeMenus(); await api('/api/update-data',{hashes:h}); toast(h?'Downloading the file-path database in the background (a few minutes)…':'Updating champion data…'); }
+function toggleMenu(e){ e.stopPropagation(); document.getElementById('menu').classList.toggle('show'); }
+function closeMenus(){ document.getElementById('menu').classList.remove('show'); }
+document.addEventListener('click', closeMenus);
+function lightbox(src){ document.getElementById('lbImg').src=src; document.getElementById('lightbox').classList.add('show'); }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeModal(); window.V3D && V3D.hide(); if (document.getElementById('cmpBg').classList.contains('show')) closeCompare(); document.getElementById('lightbox').classList.remove('show'); }});
+
+function toast(msg, kind=''){
+  const t=document.createElement('div'); t.className='toast '+kind; t.innerHTML=msg;
+  document.getElementById('toasts').appendChild(t); setTimeout(()=>t.remove(), 7000);
+}
+function showResult(r){
+  if (r.fix) return toast((r.ok?'🛠 ':'✖ ')+'<b>'+esc(r.file)+'</b><br>'+esc(r.msg), r.ok?'':'bad');
+  if (!r.ok) return toast(`✖ <b>${esc(r.file)}</b><br>${esc(r.msg)}`,'bad');
+  if (r.duplicate) return toast(`⧉ <b>${esc(r.file)}</b><br>${esc(r.msg)}`,'dup');
+  const bad = (r.issues||[]).filter(i=>i.level!=='info');
+  toast(`✔ <b>${esc(r.file)}</b><br>${r.champ_name?`<b>${esc(r.champ_name)}</b> · ${esc(r.skin||r.type||'')}`:'Champion unknown → _Unsorted'}<br><span style="color:var(--muted);font-size:12px">${esc(r.dest||'')}</span>${bad.length?`<br><span style="color:var(--warn)">⚠ ${esc(bad[0].msg)}</span>`:''}`, bad.length?'dup':'');
+}
+
+// ---------- LTK Manager
+S.ltk = {mods:[], found:false};
+async function loadLtk(refresh){
+  let changed = false;
+  try{ const d = await api('/api/ltk'+(refresh?'?refresh=1':'')); changed = d.t !== S.ltk.t || d.loading !== S.ltk.loading; S.ltk = d; }catch(e){}
+  if (changed || S.sel==='__ltk'){ renderMain(); renderSide(); }
+}
+function folderChip(m){
+  const f = (m.folders||[]).filter(r=>r.model||r.texture||r.skeleton);
+  if (!f.length) return '';
+  const txt = f.slice(0,4).map(r=>`${r.folder}${r.model?' (model)':r.texture?' ('+r.texture+' tex)':''}`).join(' · ');
+  const tip = (m.folders||[]).map(r=>`skins/${r.folder}: `+Object.entries(r).filter(([k])=>!['skin','folder'].includes(k)).map(([k,v])=>v+' '+k).join(', ')).join('\n');
+  return `<span class="chip" title="${esc(tip)}">📁 ${esc(txt)}${f.length>4?' …':''}</span>`;
+}
+function ltkFor(m){ return (S.ltk.mods||[]).find(x=>x.lib_id===m.id); }
+S.ltkStage = {};
+function ltkBadge(m){ const x = ltkFor(m);
+  const stg = S.ltkStage[m.id];
+  if (!x && stg==='converting') return `<span class="chip t"><span class="spin" style="width:9px;height:9px;display:inline-block;vertical-align:-1px;margin-right:4px"></span>Converting to .fantome…</span>`;
+  if(!x && S.ltkAdded[m.id]) return `<span class="chip ltk-on" title="Installed and enabled in LTK Manager">● In LTK · enabled</span>`;
+  if(!x && (S.ltkAdding||[]).includes(m.id)) return `<span class="chip ltk-on" style="opacity:.75"><span class="spin" style="width:9px;height:9px;display:inline-block;vertical-align:-1px;margin-right:4px;border-color:#9ff0c9;border-right-color:transparent"></span>Adding to LTK…</span>`; if(!x) return (S.ltk.found && /\.(fantome|zip)$/i.test(m.filename) && m.champ) ? `<button class="chip" style="cursor:pointer;border-style:dashed" onclick="ltkAdd(['${m.id}'])" title="Install this mod in LTK Manager">＋ Add to LTK</button>` : ''; return x.enabled ? `<span class="chip ltk-on" title="Installed and enabled in LTK Manager">● In LTK · enabled</span>` : `<span class="chip ltk-off" title="Installed in LTK Manager but turned off">○ In LTK · off</span>`; }
+function renderLtk(el){
+  const L = S.ltk;
+  if (!L.found && !L.loading){ el.innerHTML = `<div class="empty-state"><h2 style="color:var(--gold2)">LTK Manager not found</h2><p>Expected its data in <code>%APPDATA%\\dev.leaguetoolkit.manager</code>. Set the location under ⋯ → Folders &amp; tools.</p></div>`; return; }
+  const all = L.mods||[]; let ms = all.slice();
+  const f = S.ltkFilter || 'enabled';
+  if (f==='enabled') ms = ms.filter(m=>m.enabled); if (f==='problems') ms = ms.filter(m=>m.outdated || (m.conflict_with||[]).length || (m.health && m.health!=='healthy'));
+  if (S.q) ms = ms.filter(m=>(m.name+' '+(S.champs[m.champ]?.name||'')).toLowerCase().includes(S.q));
+  const on = all.filter(m=>m.enabled), out = on.filter(m=>m.outdated), conf = on.filter(m=>(m.conflict_with||[]).length);
+  const groups = {}; ms.forEach(m=>{ const k = m.champ||'~'; (groups[k]=groups[k]||[]).push(m); });
+  const keys = Object.keys(groups).sort((a,b)=>(S.champs[a]?.name||'zzz').localeCompare(S.champs[b]?.name||'zzz'));
+  el.innerHTML = `<div class="hero" style="height:130px"><div class="hero-in"><div><h1>LTK Manager</h1><div class="sub">What's installed for the game · profile “${esc(L.profile||'')}”${L.loading?' · reading…':''}</div></div>
+    <div class="meta" style="margin-left:auto;display:flex;gap:8px"><button class="btn small" onclick="loadLtk(true)">↻ Refresh</button></div></div></div>
+    <div class="content">
+    <div class="cards" style="margin:0 0 16px">
+      <div class="card"><div class="v">${all.length}</div><div class="l">installed in LTK</div></div>
+      <div class="card"><div class="v" style="color:var(--ok)">${on.length}</div><div class="l">enabled (loaded in game)</div></div>
+      <div class="card w" style="cursor:pointer" onclick="S.ltkFilter='problems';renderMain()"><div class="v">${out.length}</div><div class="l">enabled but outdated</div></div>
+      <div class="card w" style="cursor:pointer" onclick="S.ltkFilter='problems';renderMain()"><div class="v">${conf.length}</div><div class="l">enabled & fighting over a skin</div></div>
+    </div>
+    ${Object.keys(S.ltkPending).length?`<div class="pendbar"><b>${Object.keys(S.ltkPending).length} change(s) waiting</b><span style="color:var(--muted);font-size:12.5px">LTK Manager will close for a moment and reopen to apply them.</span><div class="spacer"></div><button class="btn small" onclick="S.ltkPending={};renderMain()">Discard</button><button class="btn small gold" onclick="ltkApply()">Apply changes</button></div>`:''}
+    <div class="toolbar"><div class="seg" style="width:360px">${['enabled','all','problems'].map(k=>`<button class="${f===k?'on':''}" onclick="S.ltkFilter='${k}';renderMain()">${{enabled:'Enabled',all:'All installed',problems:'Problems'}[k]}</button>`).join('')}</div>
+      ${out.length?`<button class="btn small gold" onclick="fixMany(${JSON.stringify(out.map(m=>m.id)).replace(/"/g,'&quot;')})">🛠 Fix ${out.length} outdated &amp; swap into LTK</button>`:''}</div>
+    ${keys.length?'':'<div class="empty-state">Nothing here.</div>'}
+    ${keys.map(k=>{ const c=S.champs[k]; return `<div class="sec-label" style="padding:14px 0 6px">${esc(c?c.name:'No champion detected')} · ${groups[k].length}</div>` + groups[k].sort((a,b)=>(a.applies_to??999)-(b.applies_to??999)).map(m=>ltkRow(m,c)).join(''); }).join('')}
+    </div>`;
+}
+S.ltkPending = {};
+function ltkToggle(id, cur){ const p = S.ltkPending[id]; if (p==='remove') return; const now = p ? !(p==='enable') : !cur; if (now===cur) delete S.ltkPending[id]; else S.ltkPending[id] = now?'enable':'disable'; renderMain(); }
+function ltkRemove(id){ if (S.ltkPending[id]==='remove') delete S.ltkPending[id]; else S.ltkPending[id]='remove'; renderMain(); }
+async function ltkApply(){
+  const changes = Object.entries(S.ltkPending).map(([id,op])=>({id,op}));
+  toast('Applying '+changes.length+' change(s) to LTK Manager…');
+  const r = await api('/api/ltk/apply',{changes});
+  if (r.ok){
+    for (const c of changes){
+      if (c.op==='remove') S.ltk.mods = S.ltk.mods.filter(m=>m.ltk_id!==c.id);
+      else { const m = S.ltk.mods.find(m=>m.ltk_id===c.id); if (m) m.enabled = c.op==='enable'; }
+    }
+    S.ltkPending={}; renderMain(); toast(`✔ Applied ${r.applied} change(s) - LTK Manager reopened. Removed mods are kept in Skin Vault\\data\\ltk_removed.`); }
+  else toast('✖ '+esc(r.msg),'bad');
+  setTimeout(()=>loadLtk(true), 3000); renderMain();
+}
+S.ltkAdded = {};
+async function convertMods(ids, all){
+  ids.forEach(i=>S.ltkStage[i]='converting'); renderMain(); fastPoll();
+  const r = await api('/api/convert', all?{all:true}:{ids});
+  if (all) toast(`Converting ${r.queued} .zip mod(s) to .fantome in the background…`);
+}
+function zipCount(){ return S.mods.filter(m=>/\.zip$/i.test(m.filename) && m.champ && !m.dup_of && !(m.children||[]).length).length; }
+async function ltkAdd(ids){
+  ids = ids.filter(i=>!(S.ltkAdding||[]).includes(i));
+  if (!ids.length) return;
+  S.ltkAdding = (S.ltkAdding||[]).concat(ids); renderMain(); fastPoll();   // instant feedback, no waiting on the server
+  const r = await api('/api/ltk/add',{ids});
+  if (!r.ok){ S.ltkAdding = S.ltkAdding.filter(x=>!ids.includes(x)); renderMain(); toast('✖ '+esc(r.msg),'bad'); return; }
+  setTimeout(()=>{ S.ltkAdding=(S.ltkAdding||[]).filter(x=>!ids.includes(x)); renderMain(); }, 90000);
+}
+function ltkAddGroup(ids){ ltkAdd(ids); }
+function ltkRow(m, c){
+  const img = c && m.applies_to!=null ? `<img loading="lazy" src="${loadingArt(c,m.applies_to)}" onerror="this.style.visibility='hidden'">` : `<div class="thumb none" style="width:40px;height:40px">?</div>`;
+  const pend0 = S.ltkPending[m.ltk_id]; const on0 = pend0==='enable' ? true : pend0==='disable' ? false : m.enabled;
+  const chips = [
+    on0?'<span class="chip ltk-on">● enabled</span>':'<span class="chip ltk-off">○ off</span>',
+    pend0?`<span class="chip t">pending: ${pend0}</span>`:'',
+    m.applies_label?`<span class="chip t">🎮 pick: ${esc(m.applies_label)}</span>`:'',
+    m.outdated?'<span class="chip bad">outdated</span>':'',
+    m.health && m.health!=='healthy'?`<span class="chip bad">LTK: ${esc(m.health)}</span>`:'',
+    (m.conflict_with||[]).length?`<span class="chip bad" title="${esc(m.conflict_with.join(', '))}">⚔ same skin as ${m.conflict_with.length} other</span>`:'',
+    m.lib_id?`<span class="chip">in library</span>`:'<span class="chip">not in library</span>',
+  ].join('');
+  const pend = S.ltkPending[m.ltk_id]; const on = pend==='enable' ? true : pend==='disable' ? false : m.enabled;
+  return `<div class="ltk-row ${on?'on':''} ${pend==='remove'?'removing':''}"><div style="display:flex;gap:10px;align-items:center"><div class="sw ${on?'on':''} ${pend&&pend!=='remove'?'pending':''}" title="${on?'Enabled - click to turn off':'Off - click to enable'}" onclick="ltkToggle('${m.ltk_id}',${m.enabled})"></div>${img}</div><div><div class="mt">${esc(m.name)}</div><div class="ms">${m.author?'by '+esc(m.author)+' · ':''}${esc(m.filename||'')}</div><div class="chips">${chips}</div></div>
+    <div class="acts" style="flex-direction:row">${m.champ?`<button class="btn small primary" onclick="open3D({id:'${m.id}'})">🧊 3D</button>${cmpBtn({id:m.id})}<button class="btn small ${m.outdated?'gold':''}" onclick="fixDlg('${m.id}')">🛠 Fix</button>`:''}
+    ${m.lib_id?`<button class="btn small" onclick="goMod('${S.mods.find(x=>x.id===m.lib_id)?.champ||''}','${m.lib_id}')">Library</button>`:''}<button class="btn small" onclick="api('/api/ltk/open',{id:'${m.id}'})">📂</button><button class="btn small" title="Remove from LTK Manager" onclick="ltkRemove('${m.ltk_id}')">${pend==='remove'?'↶ Keep':'🗑 Remove'}</button></div></div>`;
+}
+
+async function unpackLt(id){ toast('Unpacking with LtMAO…'); const r = await api('/api/unpack-ltmao',{id}); toast(r.ok?'Unpacked - opened the folder':'Unpack failed: '+esc(r.msg), r.ok?'':'bad'); }
+// ---------- auto-fix
+function anyMod(id){ return S.mods.find(x=>x.id===id) || (S.ltk.mods||[]).find(x=>x.id===id); }
+function fixDlg(id){
+  const m = anyMod(id); const c = S.champs[m.champ]; if(!c){ toast('Assign a champion first','bad'); return; }
+  const cur = m.applies_to ?? (m.skins||[0])[0] ?? 0;
+  const isLtk = id.startsWith('ltk:');
+  modal(`<div class="modal-h"><h2>Auto-fix “${esc(m.name)}”</h2><div class="spacer"></div><button class="btn small" onclick="closeModal()">✕</button></div>
+    <div class="modal-b">
+      <p style="color:var(--muted);margin-top:0">Uses <b>LtMAO-hai</b> to unpack the mod, line its model, skeleton and textures up with what the current game loads for the skin below, convert textures to <b>TEX</b>, point any of the mod's own bin files at the TEX textures, and repack it.</p>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>Make it show on:</span>
+        <select id="fxSlot">${c.skins.map(s=>`<option value="${s.num}" ${s.num===cur?'selected':''}>${esc(s.name)} (#${s.num})</option>`).join('')}</select></div>
+      ${(isLtk || ltkFor(m)) ? `<label style="display:flex;gap:8px;align-items:center;margin-top:12px"><input type="checkbox" id="fxSwap" checked> Swap the fixed version into LTK Manager (replaces the installed copy)</label>` : ''}
+      <p style="font-size:12.5px;color:var(--muted)">${isLtk?'The fixed copy is saved to your library (LTK Manager\'s copy isn\'t touched) - add it to LTK Manager afterwards.':'Saves <code>… (fixed).fantome</code> next to the original. The original is moved to <code>_Originals</code> - nothing is deleted.'}</p>
+    </div>
+    <div class="modal-f"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="doFix('${id}')">Fix it</button></div>`);
+}
+async function doFix(id){ const slot = Number(document.getElementById('fxSlot').value); const sw = document.getElementById('fxSwap'); closeModal(); await api('/api/fix',{ids:[id], slot, swap_ltk: !!(sw && sw.checked)}); toast('Fixing <b>'+esc(anyMod(id).name)+'</b>… (watch the top bar)'); pollJobs(); }
+async function fixMany(ids){ await api('/api/fix',{ids, swap_ltk:true}); toast(`Queued ${ids.length} mod(s) for auto-fix`); pollJobs(); }
+async function fixAllOutdated(){ closeModal(); const r = await api('/api/fix',{all_outdated:true}); toast(`Queued ${r.queued} outdated mod(s) for auto-fix`); pollJobs(); }
+let jobsTimer=null;
+async function pollJobs(){
+  clearTimeout(jobsTimer);
+  const j = await api('/api/jobs'); S.jobs = j.jobs;
+  const active = j.jobs.filter(x=>x.status==='running'||x.status==='queued');
+  document.getElementById('jobsInd').style.display = active.length?'flex':'none';
+  if (active.length){ const r = active.find(x=>x.status==='running'); document.getElementById('jobsTxt').textContent = `Fixing ${r?esc(r.name).slice(0,28):''} · ${active.length} left`; jobsTimer=setTimeout(pollJobs,1500); }
+  if (document.getElementById('jobsList')) renderJobs();
+}
+function openJobs(){ closeMenus(); modal(`<div class="modal-h"><h2>Auto-fix</h2><div class="spacer"></div><button class="btn small" onclick="closeModal()">✕</button></div><div class="modal-b" id="jobsList">Loading…</div>`); pollJobs(); }
+function renderJobs(){
+  const el = document.getElementById('jobsList'); const jobs = (S.jobs||[]).slice().reverse();
+  el.innerHTML = jobs.length ? jobs.map(j=>{ const r=j.report||{}; const v=r.verify||{};
+    return `<div class="job ${j.status}"><div><span class="st">${{queued:'Queued',running:'Fixing…',done:'Fixed',error:'Failed'}[j.status]}</span> · <b>${esc(j.name)}</b> → ${esc(skinName(j.champ,j.slot))}</div>
+      ${j.error?`<div style="color:#ffb3b5;margin-top:4px">${esc(j.error)}</div>`:''}
+      ${j.out_rel?`<div class="ms" style="margin-top:4px">Saved: ${esc(j.out_rel)}${j.original?' · original kept in '+esc(j.original):''}</div>`:''}
+      ${j.status==='done'?`<div style="margin-top:4px">${v.outdated?'<span style="color:var(--warn)">⚠ Still looks outdated after fixing - the mod may not contain a model/texture for this skin.</span>':`<span style="color:var(--ok)">✔ Check: now shows on ${esc(v.applies_label||'')}</span>`} ${j.out_id?`<button class="btn small primary" onclick="closeModal();open3D({id:'${j.out_id}'})">🧊 View in 3D</button>`:''}</div>`:''}
+      ${j.ltk_swapped?'<div style="color:var(--ok);margin-top:4px">✔ Swapped into LTK Manager</div>':''}${j.ltk_swap_error?`<div style="color:#ffb3b5;margin-top:4px">LTK swap failed: ${esc(j.ltk_swap_error)}</div>`:''}
+      ${(r.mapped||[]).length?`<ul>${r.mapped.map(x=>`<li>${esc(x.what)}: ${esc(x.from)} → ${esc(x.to)}</li>`).join('')}</ul>`:''}
+      ${(r.warnings||[]).map(w=>`<div style="color:#ffd99a;margin-top:4px">⚠ ${esc(w)}</div>`).join('')}
+      ${j.status==='running'?`<ul>${j.steps.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>`:''}</div>`; }).join('') : '<p style="color:var(--muted)">No fixes run yet. Use 🛠 Auto-fix on any mod.</p>';
+}
+function skinName(c,n){ const ch=S.champs[c]; const s=ch&&ch.skins.find(x=>x.num===n); return (ch?ch.name+' · ':'')+(s?s.name:'skin #'+n); }
+
+// ---------- 3D compare
+S.cmp = [];
+const cmpKey = it => it.id ? it.id : `${it.champ}:${it.skin}`;
+function inCompare(it){ return S.cmp.some(x=>cmpKey(x)===cmpKey(it)); }
+function cmpLabel(it){ if (it.id){ const m = anyMod(it.id); return m ? m.name : 'Mod'; } const c=S.champs[it.champ]; const sk=c&&c.skins.find(x=>x.num===it.skin); return 'Original · ' + (sk?sk.name:('skin '+it.skin)); }
+function toggleCompare(it){
+  if (inCompare(it)) S.cmp = S.cmp.filter(x=>cmpKey(x)!==cmpKey(it));
+  else { if (S.cmp.length>=3){ toast('You can compare up to 3 at once - remove one from the tray first','bad'); return; } S.cmp.push(it); }
+  renderTray(); renderMain();
+  if (document.getElementById('v3dBg').classList.contains('show') && V.req) renderSide3D();
+}
+function cmpBtn(it, small=true){
+  const on = inCompare(it); const arg = JSON.stringify(it).replace(/"/g,'&quot;');
+  return `<button class="btn ${small?'small':''} ${on?'cmp-on':''}" title="${on?'Remove from compare':'Add to 3D compare (up to 3)'}" onclick="toggleCompare(${arg})">${on?'✓ Comparing':'⇆ Compare'}</button>`;
+}
+function renderTray(){
+  const t = document.getElementById('cmpTray');
+  if (!S.cmp.length){ t.classList.remove('show'); t.innerHTML=''; return; }
+  t.classList.add('show');
+  t.innerHTML = `<span style="font-size:12px;color:var(--gold2);font-weight:600;padding:0 4px">3D Compare</span>` +
+    S.cmp.map((it,i)=>`<div class="it"><span>${esc(cmpLabel(it))}</span><button title="Remove" onclick="S.cmp.splice(${i},1);renderTray();renderMain()">✕</button></div>`).join('') +
+    (S.cmp.length<3?`<span style="font-size:11.5px;color:var(--dim)">${3-S.cmp.length} more slot${S.cmp.length===2?'':'s'}</span>`:'') +
+    `<button class="btn small gold" ${S.cmp.length<2?'disabled':''} onclick="openCompare()">Compare ${S.cmp.length}</button><button class="btn small" onclick="S.cmp=[];renderTray();renderMain()">Clear</button>`;
+}
+async function openCompare(){
+  if (!window.V3C){ toast('3D engine still loading - try again in a second','bad'); return; }
+  const items = S.cmp.slice(0,3);
+  V3C.open(items.length);
+  const grid = document.getElementById('cmpGrid');
+  grid.style.gridTemplateColumns = `repeat(${items.length}, 1fr)`;
+  grid.innerHTML = items.map((it,i)=>`<div class="cmp-cell" id="cc${i}"><div class="top"><div class="nm">${esc(cmpLabel(it))}</div><div class="sk" id="cs${i}"></div></div><div class="msg" id="cm${i}">Loading…</div><div class="bot" id="cb${i}"></div></div>`).join('');
+  const champs = new Set();
+  await Promise.all(items.map(async (it,i)=>{
+    const url = it.id ? `/api/3d/model?id=${encodeURIComponent(it.id)}` : `/api/3d/model?champ=${it.champ}&skin=${it.skin}`;
+    try{
+      const m = await api(url);
+      if (m.error){ document.getElementById('cm'+i).textContent = m.error; return; }
+      champs.add(m.champ);
+      V3C.set(i, m);
+      document.getElementById('cm'+i).style.display='none';
+      document.getElementById('cs'+i).innerHTML = `🎮 pick in game: <b>${esc(m.skin_label)}</b>${S.champs[m.champ]?' · '+esc(S.champs[m.champ].name):''}`;
+      document.getElementById('cb'+i).innerHTML = cmpCellFooter(it, m);
+    }catch(e){ document.getElementById('cm'+i).textContent = 'Failed: '+e; }
+  }));
+  document.getElementById('cmpSub').textContent = items.length + ' models' + (champs.size>1?' · different champions':'');
+}
+function cmpCellFooter(it, m){
+  const src = (k,v)=> v ? `<span class="chip ${v==='mod'?'mod':''}">${k}: ${v==='mod'?'mod':'original'}</span>` : '';
+  const mod = it.id ? anyMod(it.id) : null;
+  const lib = mod && !it.id.startsWith('ltk:') ? mod : null;
+  const ltk = it.id && it.id.startsWith('ltk:') ? mod : (lib ? ltkFor(lib) : null);
+  const acts = [
+    `<button class="btn small primary" onclick="closeCompare();open3D(${JSON.stringify(it).replace(/"/g,'&quot;')})">🧊 Open</button>`,
+    ltk ? `<span class="chip ${ltk.enabled?'ltk-on':'ltk-off'}">${ltk.enabled?'● In LTK · enabled':'○ In LTK · off'}</span>` :
+      (lib && /\.(fantome|zip)$/i.test(lib.filename) ? `<button class="btn small gold" onclick="ltkAdd(['${lib.id}']);this.disabled=true;this.textContent='⏳ Adding…'">＋ Add to LTK</button>` : ''),
+    lib ? `<button class="btn small" onclick="openMod('${lib.id}')">📂</button>` : '',
+    lib ? `<button class="btn small" style="color:#ffb3b5" onclick="deleteDlg(['${lib.id}'])">🗑 Delete</button>` : '',
+  ].join('');
+  return `<div class="srcs">${src('Model',m.sources.mesh)}${src('Textures',m.sources.texture)}</div>
+    ${m.notes.length?`<div style="font-size:11.5px;color:#ffd99a">${esc(m.notes[0]).slice(0,140)}</div>`:''}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${acts}</div>`;
+}
+function deleteDlg(ids){
+  const ms = ids.map(i=>S.mods.find(x=>x.id===i)).filter(Boolean); if(!ms.length) return;
+  const inLtk = ms.filter(m=>ltkFor(m));
+  modal(`<div class="modal-h"><h2>Delete ${ms.length===1?'“'+esc(ms[0].name)+'”':ms.length+' mods'}?</h2><div class="spacer"></div><button class="btn small" onclick="closeModal()">✕</button></div>
+    <div class="modal-b"><p style="margin-top:0">${ms.map(m=>`<div class="path">${esc(m.rel)}</div>`).join('')}</p>
+      <p style="color:var(--muted)">It goes to the <b>Windows Recycle Bin</b>, so you can restore it from there if you change your mind.</p>
+      ${inLtk.length?`<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="delLtk" checked> Also remove ${inLtk.length===1?'it':inLtk.length+' of them'} from LTK Manager <span style="color:var(--muted);font-size:12px">(LTK restarts for a moment)</span></label>`:''}
+    </div>
+    <div class="modal-f"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn" style="border-color:var(--err);color:#ffb3b5" onclick="doDelete(${JSON.stringify(ids).replace(/"/g,'&quot;')})">🗑 Delete</button></div>`);
+}
+async function doDelete(ids){
+  const lt = document.getElementById('delLtk'); closeModal();
+  const r = await api('/api/delete',{ids, remove_ltk: !!(lt && lt.checked)});
+  S.mods = S.mods.filter(m=>!r.deleted.some(d=>d.id===m.id));
+  S.cmp = S.cmp.filter(it=>!r.deleted.some(d=>d.id===it.id)); renderTray();
+  renderStats(); renderSide(); renderMain();
+  if (r.deleted.length) toast(`🗑 Sent ${r.deleted.length} mod(s) to the Recycle Bin${r.ltk&&!r.ltk.error?' and removed from LTK':''}`);
+  if (r.failed.length) toast(`✖ Couldn't delete ${r.failed.length}: ${esc(r.failed.map(f=>f.name||f.id).join(', '))}`,'bad');
+  if (r.ltk && r.ltk.error) toast('LTK: '+esc(r.ltk.error),'bad');
+}
+function closeCompare(){ V3C.close(); S.cmp = []; renderTray(); renderMain(); }
+
+// ---------- 3D viewer
+const V = {req:null, model:null, mats:null, mode:'mod'};
+async function open3D(req){
+  if (!window.V3D){ toast('3D engine is still loading (needs internet the first time) - try again in a second.','bad'); return; }
+  V.req = req; V.mode = req.id ? 'mod' : 'orig';
+  V3D.show(); await load3D();
+}
+async function load3D(){
+  const r = V.req; const msg = document.getElementById('v3dMsg');
+  msg.style.display='grid'; msg.textContent = 'Loading model…';
+  let url;
+  if (V.mode==='mod') url = `/api/3d/model?id=${r.id}`;
+  else { const m = r.id ? anyMod(r.id) : null; url = `/api/3d/model?champ=${r.champ||m.champ}&skin=${r.skin ?? (m.applies_to ?? (m.skins||[0])[0] ?? 0)}`; }
+  try{
+    const m = await api(url);
+    if (m.error){ msg.textContent = m.error; V.model=null; renderSide3D(); return; }
+    V.model = m; V.mats = V3D.build(m); msg.style.display='none';
+  }catch(e){ msg.textContent = 'Failed to load: '+e; }
+  renderSide3D();
+}
+function renderSide3D(){
+  const r = V.req, m = V.model; const mod = r.id ? anyMod(r.id) : null;
+  const champ = S.champs[(m&&m.champ) || r.champ || (mod&&mod.champ)];
+  const srcChip = (k,v) => v ? `<span class="chip ${v==='mod'?'mod':''}">${k}: ${v==='mod'?'from mod':'original'}</span>` : '';
+  document.getElementById('v3dSide').innerHTML = `
+    <div style="display:flex;align-items:start;gap:8px"><div style="flex:1"><h2>${esc(mod?mod.name:(m?m.skin_label:''))}</h2>
+      <div class="sub">${esc(champ?champ.name:'')}${m?' · in-game skin: <b style="color:var(--teal)">'+esc(m.skin_label)+'</b>':''}</div></div>
+      <button class="btn small" onclick="V3D.hide()">✕</button></div>
+    ${mod?`<div class="seg"><button class="${V.mode==='mod'?'on':''}" onclick="V.mode='mod';load3D()">With this mod</button><button class="${V.mode==='orig'?'on':''}" onclick="V.mode='orig';load3D()">Original skin</button></div>`:''}
+    ${m?`<div class="srcs">${srcChip('Model',m.sources.mesh)}${srcChip('Textures',m.sources.texture)}${srcChip('Skin data',m.sources.skin_data)}</div>`:''}
+    ${m&&m.notes.length?m.notes.map(n=>`<div class="note">${esc(n)}</div>`).join(''):''}
+    ${m?`<div><div class="sec-label" style="padding:0 0 6px">Parts</div><div class="parts">${m.submeshes.map((s,i)=>`<label><input type="checkbox" ${!s.hidden?'checked':''} onchange="V.mats[${i}].visible=this.checked"> ${esc(s.name)} <span>${s.hidden?'hidden in game':''}</span></label>`).join('')}</div></div>`:''}
+    <div>${cmpBtn(r.id?{id:r.id}:{champ:r.champ, skin:r.skin}, false)} ${S.cmp.length>=2?`<button class="btn gold" onclick="V3D.hide();openCompare()">Compare ${S.cmp.length}</button>`:''}</div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:12.5px"><input type="checkbox" id="v3dAuto" ${V3D.auto?'checked':''} onchange="V3D.setAuto(this.checked)"> Auto-rotate</label>
+    ${m?`<div class="sub" style="font-size:11px;word-break:break-all">Mesh: ${esc(m.mesh_path||'')}</div>`:''}
+    <div class="sub" style="font-size:11px">Shown in bind pose (no animation). Effects/particles aren't rendered.</div>`;
+}
+window.V3D_sync = () => { const c=document.getElementById('v3dAuto'); if(c) c.checked=false; };
+async function setGameDir(){
+  closeMenus();
+  const cur = await api('/api/settings');
+  modal(`<div class="modal-h"><h2>Folders &amp; tools</h2></div><div class="modal-b">
+    <p style="color:var(--muted);margin-top:0">These are found automatically - only change them if something moved.</p>
+    <label class="sub">Skin mod folder (library) - changing it restarts Skin Vault</label><input id="lb" style="width:100%;margin:4px 0 12px" value="${esc(cur.library||'')}">
+    <label class="sub">League of Legends game folder (3D viewer, skin matching)</label><input id="gd" style="width:100%;margin:4px 0 12px" value="${esc(cur.game_dir||'')}">
+    <label class="sub">LtMAO-hai folder (auto-fix)</label><input id="lt" style="width:100%;margin:4px 0 12px" value="${esc(cur.ltmao_dir||'')}">
+    <label class="sub">LTK Manager data folder</label><input id="lk" style="width:100%;margin:4px 0 0" value="${esc(cur.ltk_dir||'')}"></div>
+    <div class="modal-f"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="saveGameDir()">Save</button></div>`);
+}
+async function saveGameDir(){
+  const r = await api('/api/settings',{library:document.getElementById('lb').value, game_dir:document.getElementById('gd').value, ltmao_dir:document.getElementById('lt').value, ltk_dir:document.getElementById('lk').value});
+  if (r.restarting){ closeModal(); toast('Switching library - restarting…'); for (let i=0;i<60;i++){ await new Promise(x=>setTimeout(x,1000)); try{ await api('/api/status'); location.reload(); return; }catch(e){} } return; }
+  closeModal(); toast(`Game: ${r.game_dir?'✔':'✖ not found'} · LtMAO: ${r.ltmao_dir?'✔':'✖ not found'} · LTK: ${r.ltk_dir?'✔':'✖ not found'}`); loadLtk(true);
+}
+
+// ---------- drag & drop import
+let dragDepth=0;
+window.addEventListener('dragenter', e=>{ if([...e.dataTransfer.types].includes('Files')){ dragDepth++; document.getElementById('dropOverlay').classList.add('show'); e.preventDefault(); }});
+window.addEventListener('dragover', e=>{ e.preventDefault(); });
+window.addEventListener('dragleave', e=>{ dragDepth=Math.max(0,dragDepth-1); if(!dragDepth) document.getElementById('dropOverlay').classList.remove('show'); });
+window.addEventListener('drop', e=>{ e.preventDefault(); dragDepth=0; document.getElementById('dropOverlay').classList.remove('show'); uploadFiles([...e.dataTransfer.files]); });
+function filePick(){ closeMenus(); document.getElementById('filepick').click(); }
+document.getElementById('filepick').addEventListener('change', e=>{ uploadFiles([...e.target.files]); e.target.value=''; });
+async function uploadFiles(files){
+  if(!files.length) return;
+  let last=null;
+  for (const f of files){
+    if (!/\.(fantome|zip|wad\.client|wad)$/i.test(f.name)){ toast(`✖ <b>${esc(f.name)}</b><br>Not a mod file. Drop .fantome, .zip or .wad.client (extract .rar/.7z first).`,'bad'); continue; }
+    toast(`Importing <b>${esc(f.name)}</b>…`);
+    try{
+      const r = await fetch('/api/import',{method:'POST',headers:{'X-Filename':encodeURIComponent(f.name),'X-SkinVault':'1'},body:f});
+      const j = await r.json();
+      (j.results||[]).forEach(x=>{ showResult(x); if(x.ok&&x.champ) last=x; });
+    }catch(err){ toast(`✖ ${esc(f.name)}: ${esc(err)}`,'bad'); }
+  }
+  setTimeout(async()=>{ await waitScan(); await load(); if(last){ S.flash=last.id; select(last.champ); } }, 600);
+}
+async function waitScan(){ for(let i=0;i<60;i++){ const s=await api('/api/status'); if(s.status==='idle') return; await new Promise(r=>setTimeout(r,500)); } }
+
+// ---------- live status
+let fastUntil = 0;
+function fastPoll(){ fastUntil = Date.now() + 30000; clearTimeout(window._pollT); poll(); }
+async function poll(){
+  try{
+    const s = await api('/api/status?since='+S.since);
+    const busy = s.status!=='idle';
+    document.getElementById('scanning').style.display = busy?'flex':'none';
+    if (busy){
+      document.getElementById('scanTxt').textContent = s.status==='scanning' ? `Scanning ${s.progress}/${s.total||'?'}` : (s.current||'Working…');
+      document.getElementById('scanBar').style.width = s.total ? (100*s.progress/s.total)+'%' : '10%';
+    }
+    if (s.events && s.events.length){
+      S.events = (S.events||[]).concat(s.events);
+      S.since = Math.max(...s.events.map(e=>e.t));
+      s.events.filter(e=>e.origin==='ltk-stage').forEach(e=>{ S.ltkStage[e.lib_id] = e.stage; });
+      const convs = s.events.filter(e=>e.origin==='convert');
+      convs.forEach(e=>{
+        delete S.ltkStage[e.lib_id];
+        if (e.ok && e.new_id){
+          S.ltkAdding = (S.ltkAdding||[]).map(x=>x===e.lib_id?e.new_id:x);
+          const m = S.mods.find(x=>x.id===e.lib_id);
+          if (m){ m.id = e.new_id; m.filename = m.filename.replace(/\.zip$/i,'.fantome'); m.rel = m.rel.replace(/\.zip$/i,'.fantome'); }
+          S.cmp.forEach(it=>{ if(it.id===e.lib_id) it.id=e.new_id; });
+        }
+      });
+      const convOk = convs.filter(e=>e.ok && !(S.ltkAdding||[]).includes(e.new_id)), convBad = convs.filter(e=>!e.ok);
+      if (convOk.length) toast(convOk.length===1 ? `⇢ Converted <b>${esc(convOk[0].file)}</b> to .fantome` : `⇢ Converted ${convOk.length} mods to .fantome`);
+      convBad.forEach(e=>toast(`✖ <b>${esc(e.file)}</b><br>${esc(e.msg)}`,'bad'));
+      if (convs.length || s.events.some(e=>e.origin==='ltk-stage')) { renderMain(); fastPoll(); }
+      const adds = s.events.filter(e=>e.origin==='ltk-add');
+      adds.forEach(e=>{ S.ltkAdding=(S.ltkAdding||[]).filter(x=>x!==e.lib_id); delete S.ltkStage[e.lib_id]; if (e.ok && e.lib_id) S.ltkAdded[e.lib_id]=true; });
+      const okAdds = adds.filter(e=>e.ok), badAdds = adds.filter(e=>!e.ok);
+      if (okAdds.length) toast(okAdds.length===1 ? `✔ Added to LTK: <b>${esc(okAdds[0].file)}</b>` : `✔ Added ${okAdds.length} mods to LTK`);
+      badAdds.forEach(e=>toast(`✖ <b>${esc(e.file)}</b><br>${esc(e.msg)}`,'bad'));
+      if (adds.length) renderMain();
+      if (s.events.some(e=>e.ltk_changed || e.origin==='ltk-add')) loadLtk(true);
+      s.events.filter(e=>e.origin!=='browser' && !e.ltk_changed && !['ltk-add','ltk-stage','convert'].includes(e.origin)).forEach(e=>{ if(!document.hidden) showResult(e); });
+    }
+    if (s.last_scan && s.last_scan!==S.lastScan){ await load(); }
+  }catch(e){}
+  window._pollT = setTimeout(poll, (Date.now() < fastUntil || (S.ltkAdding||[]).length) ? 500 : 2000);
+}
+document.getElementById('q').addEventListener('input', e=>{ S.q=e.target.value.trim().toLowerCase(); renderSide(); renderMain(); });
+load().then((ok)=>{ if (ok===false) return; poll(); loadLtk(); pollJobs(); setInterval(()=>{ if(S.ltk.loading) loadLtk(); }, 3000); });
+</script>
+</body>
+</html>
