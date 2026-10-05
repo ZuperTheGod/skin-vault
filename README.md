@@ -1,5 +1,7 @@
 # Skin Vault
 
+[![tests](https://github.com/ZuperTheGod/skin-vault/actions/workflows/tests.yml/badge.svg)](https://github.com/ZuperTheGod/skin-vault/actions/workflows/tests.yml)
+
 A local, browser-based manager for **League of Legends custom skin mods** (`.fantome`, `.zip`, `.wad.client`).
 Point it at the folder where you keep your mods and it tells you, for every mod, **which champion and which in-game skin it replaces**, shows the official splash art so you pick the right skin in champ select, flags broken or outdated mods, and keeps the folder sorted for you.
 
@@ -30,7 +32,7 @@ Point it at the folder where you keep your mods and it tells you, for every mod,
 
 ## Install & run
 
-1. Download this repo (**Code → Download ZIP**) and extract it anywhere. A good spot is inside your skins folder, e.g. `D:\LoL skins\_Skin Vault`.
+1. Download the latest release from the [Releases page](https://github.com/ZuperTheGod/skin-vault/releases/latest) (**Source code (zip)**) and extract it anywhere. A good spot is inside your skins folder, e.g. `D:\LoL skins\_Skin Vault`.
 2. Double-click **`Start Skin Vault.bat`**.
    - The first launch installs two small Python packages (`zstandard`, `xxhash`).
    - Your browser opens at <http://127.0.0.1:8765>.

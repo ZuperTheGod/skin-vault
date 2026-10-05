@@ -14,7 +14,7 @@ import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, tr
 
 VERSION = "1.0.0"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
-GITHUB_REPO = "OWNER/skin-vault"
+GITHUB_REPO = "ZuperTheGod/skin-vault"
 
 def ensure_deps():
     """zstandard + xxhash are needed to read the game's own files (3D viewer, skin matching)."""
