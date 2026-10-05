@@ -213,6 +213,9 @@ def http_api():
         assert "status" in get(port, "/api/status")
         assert "mods" in get(port, "/api/ltk")
         assert "library" in get(port, "/api/settings")
+        st2 = get(port, "/api/state"); assert st2["version"] == sm.VERSION and "available" in st2["update"]
+        assert "current" in get(port, "/api/update")
+        assert get(port, "/api/update/apply", {})["ok"] is False   # nothing to install
         mid = by_name("Ahri Popstar Test")[0]["id"]
         r = get(port, f"/api/3d/model?id={mid}")
         assert ("error" in r) or ("positions" in r)
@@ -265,6 +268,67 @@ def first_run_setup():
         except Exception:
             p.kill()
         shutil.rmtree(home, ignore_errors=True)
+
+@test
+def self_update():
+    import io as _io, updater
+    app = tempfile.mkdtemp(prefix="sv-upd-")
+    for rel, txt in {"skin_manager.py": 'VERSION = "1.0.0"\n', "index.html": "old", "config.json": '{"library": "X"}',
+                     "data/skinhashes3.bin": "mine", "static/three.module.js": "old3"}.items():
+        os.makedirs(os.path.dirname(os.path.join(app, rel)) or app, exist_ok=True)
+        open(os.path.join(app, rel), "w").write(txt)
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for rel, txt in {"skin_manager.py": 'VERSION = "1.2.0"\n', "index.html": "new", "config.json": "{}",
+                         "data/skinhashes3.bin": "shipped", "data/newfile.bin": "add", "static/three.module.js": "new3",
+                         "tests/run_tests.py": "x", "../evil.txt": "x"}.items():
+            z.writestr("skin-vault-1.2.0/" + rel, txt)
+    blob = buf.getvalue()
+    calls = []
+    def fake_get(url, timeout=15):
+        calls.append(url)
+        if "releases/latest" in url:
+            if "norel" in url:
+                raise urllib.error.HTTPError(url, 404, "nf", {}, None)
+            return json.dumps({"tag_name": "v1.2.0", "html_url": "https://github.com/o/r/releases/tag/v1.2.0", "body": "fixes"}).encode()
+        if "raw.githubusercontent" in url:
+            return b'VERSION = "1.1.0"\n'
+        return blob
+    old = updater._get; updater._get = fake_get
+    try:
+        cache = os.path.join(app, "data", "update.json")
+        u = updater.check("o/r", "1.0.0", cache)
+        assert u["available"] and u["latest"] == "1.2.0" and u["zip"].endswith("/tags/v1.2.0.zip"), u
+        n = len(calls); updater.check("o/r", "1.0.0", cache); assert len(calls) == n, "should use the cache"
+        assert not updater.check("o/r", "1.2.0", cache)["available"]
+        assert not updater.check("o/r", "1.10.0", cache)["available"], "1.10 > 1.2 numerically"
+        u2 = updater.check("o/norel", "1.0.0", os.path.join(app, "c2.json"))
+        assert u2["latest"] == "1.1.0" and u2["zip"].endswith("/heads/main.zip"), u2
+        assert not updater.check("", "1.0.0", cache)["available"]
+        updater.dismiss(cache, "1.2.0"); assert updater.check("o/r", "1.0.0", cache)["dismissed"] == "1.2.0"
+        written = updater.apply(u["zip"], app, "1.0.0")
+        rd = lambda r: open(os.path.join(app, r)).read()
+        assert rd("skin_manager.py").startswith('VERSION = "1.2.0"') and rd("index.html") == "new" and rd("static/three.module.js") == "new3"
+        assert rd("config.json") == '{"library": "X"}' and rd("data/skinhashes3.bin") == "mine" and rd("data/newfile.bin") == "add"
+        assert not os.path.exists(os.path.join(app, "tests")) and not os.path.exists(os.path.join(os.path.dirname(app), "evil.txt"))
+        assert open(os.path.join(app, "_update_backup", "1.0.0", "index.html")).read() == "old"
+        # a broken download changes nothing
+        blob_ok = blob; blob = b"PK\x05\x06" + b"\0" * 18
+        try:
+            updater.apply("x", app, "1.2.0"); raise AssertionError("should fail")
+        except Exception as e:
+            assert "should fail" not in str(e)
+        assert rd("index.html") == "new"
+        os.makedirs(os.path.join(app, ".git"))
+        try:
+            updater.apply("x", app, "1.2.0"); raise AssertionError("git checkout must not self-update")
+        except RuntimeError as e:
+            assert "git" in str(e)
+        open(os.path.join(app, ".git", "config"), "w").write('[remote "origin"]\n\turl = https://github.com/me/skin-vault.git\n')
+        assert updater.repo_from_git(app) == "me/skin-vault"
+    finally:
+        updater._get = old
+        shutil.rmtree(app, ignore_errors=True)
 
 if os.environ.get("SKINVAULT_TEST_GAME"):
     @test

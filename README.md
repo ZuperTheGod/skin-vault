@@ -17,6 +17,7 @@ Point it at the folder where you keep your mods and it tells you, for every mod,
 - **Auto-fix** *(optional, needs LtMAO-hai)*. Converts DDS → TEX, remaps outdated paths to the current game files, and repacks the mod. The original is kept in `_Originals`.
 - **Organize library.** Preview a full re-sort before anything moves, with one-click undo.
 - **Safe delete.** Deleted mods go to the Windows Recycle Bin.
+- **Auto-updates.** Skin Vault tells you when a new version is out and installs it in one click. Your mods and settings are kept.
 
 ![Champion view](docs/champion.png)
 
@@ -75,6 +76,12 @@ Settings live in `config.json` next to the app and are created on first run. The
 | `SKINVAULT_HOME` | Where settings, caches and logs are stored (default: app folder) |
 | `SKINVAULT_NO_PIP` | Don't auto-install missing Python packages |
 
+## Updates
+
+Skin Vault checks GitHub for a new release every few hours. When one is out, an **⬆ Update** button appears at the top. Click it, then **Update now**. Skin Vault replaces only its own program files, keeps the old ones in `_update_backup`, and restarts by itself.
+
+You can check by hand under **⋯ → Check for updates**, or turn checking off in **⋯ → Folders & tools**. If you cloned the repo with git, use `git pull` instead.
+
 ## Development
 
 ```
@@ -82,12 +89,20 @@ pip install -r requirements.txt
 python tests/run_tests.py
 ```
 
+**Publishing a new version** (maintainers):
+
+1. Bump `VERSION` in `skin_manager.py`.
+2. Push to `main`.
+
+The `release` workflow runs the tests and creates the GitHub Release `vX.Y.Z` with auto-generated notes. Every install is then offered the update. You can edit the release text on GitHub afterwards; that's what users see under "What's new".
+
 The tests build a synthetic mod library, so no game files or real mods are needed. Set `SKINVAULT_TEST_GAME=<League folder>` to also test the 3D model builder against real game files. CI runs the suite on Windows and Linux.
 
 ```
 skin_manager.py   HTTP server, library scanning, skin detection, LTK integration
 lol3d.py          WAD / BIN / SKN / SKL / TEX readers and 3D model builder
 fixer.py          LtMAO-hai wrapper: auto-fix, zip → fantome, unpack
+updater.py        update check + one-click self-update from GitHub releases
 index.html        the whole UI (single file, vanilla JS)
 static/           three.js r160 (vendored so 3D works offline)
 data/             bundled champion list + game file hash tables

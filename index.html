@@ -25,7 +25,9 @@ a{color:var(--teal)}
 header{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0e1726,#0a111c)}
 .brand{font-family:Cinzel,serif;font-size:20px;letter-spacing:.06em;color:var(--gold);white-space:nowrap}
 .brand small{font-family:Inter;font-size:11px;color:var(--dim);letter-spacing:0;margin-left:8px}
-.stats{display:flex;gap:16px;color:var(--muted);font-size:12.5px;margin-left:8px}
+.stats{display:flex;gap:14px;color:var(--muted);font-size:12.5px;margin-left:8px;white-space:nowrap;overflow:hidden;min-width:0}
+@media (max-width:1500px){header .btn{padding-left:10px;padding-right:10px}}
+a.btn{text-decoration:none;display:inline-flex;align-items:center}
 .stats b{color:var(--text);font-weight:600}
 .stats .e b{color:var(--err)} .stats .w b{color:var(--warn)}
 .spacer{flex:1}
@@ -136,6 +138,8 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--panel2)}
 .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;place-items:center;z-index:70;cursor:zoom-out}
 .lightbox.show{display:grid}.lightbox img{max-width:90vw;max-height:90vh;border-radius:8px}
 .menu{position:relative}
+.btn.upd{background:#123524;border-color:#2f8f5b;color:#7ee2a8}.btn.upd:hover{background:#18452f}
+.upd-notes{white-space:pre-wrap;background:var(--panel);border:1px solid var(--line2);border-radius:8px;padding:10px 12px;max-height:300px;overflow:auto;font-size:13px;color:var(--muted)}
 .menu-pop{position:absolute;right:0;top:110%;background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:6px;display:none;min-width:240px;z-index:30;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 .menu-pop.show{display:block}
 .menu-pop button{display:block;width:100%;text-align:left;background:none;border:0;padding:8px 10px;border-radius:6px;font-size:13px}
@@ -211,6 +215,7 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--panel2)}
     <div class="spacer"></div>
     <div class="scanning" id="scanning" style="display:none"><span id="scanTxt">Scanning…</span><div class="progress"><i id="scanBar" style="width:0"></i></div></div>
     <div class="jobs-ind" id="jobsInd" style="display:none" onclick="openJobs()"><div class="spin"></div><span id="jobsTxt"></span></div>
+    <button class="btn upd" id="updBtn" style="display:none" onclick="openUpdate()"></button>
     <button class="btn" onclick="select('__ltk')">🎮 LTK Manager</button>
     <button class="btn" onclick="openIssues()">⚠ Issues</button>
     <button class="btn" onclick="openDupes()">⧉ Duplicates</button>
@@ -226,6 +231,7 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--panel2)}
         <button onclick="openJobs()">Fix history<small>What the auto-fixer changed</small></button>
         <button onclick="setGameDir()">Folders &amp; tools<small>League game, LtMAO-hai and LTK Manager locations</small></button>
         <button onclick="api('/api/open',{path:''})">Open library folder</button>
+        <button onclick="openUpdate(true)">Check for updates<small id="verTxt">Skin Vault</small></button>
       </div>
     </div>
     <input type="file" id="filepick" multiple accept=".fantome,.zip,.client,.wad" style="display:none">
@@ -449,7 +455,7 @@ async function load(){
   S.data = d; S.lastScan = d.last_scan;
   S.champs = Object.fromEntries(d.champions.map(c=>[c.id,c]));
   S.mods = d.mods;
-  renderStats(); renderSide(); renderMain();
+  renderStats(); renderSide(); renderMain(); renderUpdate();
   return true;
 }
 function renderSetup(d){
@@ -1028,13 +1034,53 @@ async function setGameDir(){
     <label class="sub">Skin mod folder (library) - changing it restarts Skin Vault</label><input id="lb" style="width:100%;margin:4px 0 12px" value="${esc(cur.library||'')}">
     <label class="sub">League of Legends game folder (3D viewer, skin matching)</label><input id="gd" style="width:100%;margin:4px 0 12px" value="${esc(cur.game_dir||'')}">
     <label class="sub">LtMAO-hai folder (auto-fix)</label><input id="lt" style="width:100%;margin:4px 0 12px" value="${esc(cur.ltmao_dir||'')}">
-    <label class="sub">LTK Manager data folder</label><input id="lk" style="width:100%;margin:4px 0 0" value="${esc(cur.ltk_dir||'')}"></div>
+    <label class="sub">LTK Manager data folder</label><input id="lk" style="width:100%;margin:4px 0 12px" value="${esc(cur.ltk_dir||'')}">
+    <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="cu" ${cur.check_updates!==false?'checked':''}> Check GitHub for new versions of Skin Vault</label></div>
     <div class="modal-f"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="saveGameDir()">Save</button></div>`);
 }
 async function saveGameDir(){
-  const r = await api('/api/settings',{library:document.getElementById('lb').value, game_dir:document.getElementById('gd').value, ltmao_dir:document.getElementById('lt').value, ltk_dir:document.getElementById('lk').value});
+  const r = await api('/api/settings',{library:document.getElementById('lb').value, game_dir:document.getElementById('gd').value, ltmao_dir:document.getElementById('lt').value, ltk_dir:document.getElementById('lk').value, check_updates:document.getElementById('cu').checked});
   if (r.restarting){ closeModal(); toast('Switching library - restarting…'); for (let i=0;i<60;i++){ await new Promise(x=>setTimeout(x,1000)); try{ await api('/api/status'); location.reload(); return; }catch(e){} } return; }
   closeModal(); toast(`Game: ${r.game_dir?'✔':'✖ not found'} · LtMAO: ${r.ltmao_dir?'✔':'✖ not found'} · LTK: ${r.ltk_dir?'✔':'✖ not found'}`); loadLtk(true);
+}
+
+// ---------- updates
+function renderUpdate(){
+  const u = (S.data||{}).update || {}, b = document.getElementById('updBtn');
+  document.getElementById('verTxt').textContent = 'Skin Vault v' + (S.data.version||'?') + (u.available ? ` · v${u.latest} available` : '');
+  const show = u.available && u.dismissed !== u.latest;
+  b.style.display = show ? '' : 'none';
+  b.textContent = `⬆ Update to v${u.latest}`;
+  if (show && !S.updToasted){ S.updToasted = true; toast(`⬆ <b>Skin Vault v${esc(u.latest)}</b> is available. Click <b>Update</b> at the top to install it.`); }
+}
+async function openUpdate(force){
+  closeMenus();
+  let u = (S.data||{}).update || {};
+  if (force){ toast('Checking for updates…'); u = await api('/api/update?force=1'); S.data.update = u; renderUpdate(); }
+  if (!u.available){
+    const why = u.error ? `<p style="color:var(--muted)">Couldn't check right now: ${esc(u.error)}</p>` : `<p>You're on the latest version (v${esc(u.current||S.data.version)}).</p>`;
+    modal(`<div class="modal-h"><h2>Updates</h2></div><div class="modal-b">${why}</div><div class="modal-f"><button class="btn" onclick="closeModal()">OK</button></div>`);
+    return;
+  }
+  modal(`<div class="modal-h"><h2>Update available</h2></div><div class="modal-b">
+    <p style="margin-top:0">Skin Vault <b>v${esc(u.latest)}</b> is out - you have v${esc(u.current)}.</p>
+    ${u.notes ? `<div class="sub" style="margin-bottom:6px">What's new</div><div class="upd-notes">${esc(u.notes)}</div>` : ''}
+    <p class="sub" style="margin-bottom:0">Updating replaces the program files only - your mods, settings, skin corrections and LTK setup are kept. Old files are saved in <code>_update_backup</code>. Skin Vault restarts by itself.</p></div>
+    <div class="modal-f"><button class="btn" onclick="skipUpdate('${esc(u.latest)}')">Skip this version</button>
+    ${u.url ? `<a class="btn" href="${esc(u.url)}" target="_blank" rel="noopener">View on GitHub</a>` : ''}
+    <button class="btn gold" id="updGo" onclick="doUpdate()">Update now</button></div>`);
+}
+async function skipUpdate(v){ await api('/api/update/dismiss',{version:v}); S.data.update.dismissed=v; renderUpdate(); closeModal(); }
+async function doUpdate(){
+  const b = document.getElementById('updGo'); if (b){ b.disabled = true; b.textContent = 'Updating…'; }
+  const r = await api('/api/update/apply',{});
+  if (!r.ok){ toast('✖ ' + esc(r.msg||'Update failed'),'bad'); closeModal(); return; }
+  fastPoll();
+}
+async function waitRestart(){
+  toast('✔ Updated - restarting Skin Vault…');
+  await new Promise(x=>setTimeout(x,2500));
+  for (let i=0;i<60;i++){ try{ await api('/api/status'); location.reload(); return; }catch(e){} await new Promise(x=>setTimeout(x,1000)); }
 }
 
 // ---------- drag & drop import
@@ -1098,7 +1144,8 @@ async function poll(){
       badAdds.forEach(e=>toast(`✖ <b>${esc(e.file)}</b><br>${esc(e.msg)}`,'bad'));
       if (adds.length) renderMain();
       if (s.events.some(e=>e.ltk_changed || e.origin==='ltk-add')) loadLtk(true);
-      s.events.filter(e=>e.origin!=='browser' && !e.ltk_changed && !['ltk-add','ltk-stage','convert'].includes(e.origin)).forEach(e=>{ if(!document.hidden) showResult(e); });
+      s.events.filter(e=>e.origin==='update').forEach(e=>{ if (e.ok) waitRestart(); else { closeModal(); toast('✖ Update failed: ' + esc(e.msg||''),'bad'); } });
+      s.events.filter(e=>e.origin!=='browser' && !e.ltk_changed && !['ltk-add','ltk-stage','convert','update'].includes(e.origin)).forEach(e=>{ if(!document.hidden) showResult(e); });
     }
     if (s.last_scan && s.last_scan!==S.lastScan){ await load(); }
   }catch(e){}

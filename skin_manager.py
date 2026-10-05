@@ -13,6 +13,8 @@ import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
 VERSION = "1.0.0"
+# GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
+GITHUB_REPO = "OWNER/skin-vault"
 
 def ensure_deps():
     """zstandard + xxhash are needed to read the game's own files (3D viewer, skin matching)."""
@@ -32,6 +34,7 @@ def ensure_deps():
 ensure_deps()
 import lol3d
 import fixer
+import updater
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -2226,6 +2229,52 @@ def ltk_payload():
             "loading": _LTK_LOADING.locked() or (not LTK["t"] and bool(ltk_dir())), "t": LTK["t"],
             "mods": list(LTK["mods"].values())}
 
+# ---------------------------------------------------------------- updates
+UPDATE = {"current": VERSION, "available": False}
+
+def update_cache_path():
+    return os.path.join(DATA_DIR, "update.json")
+
+def update_repo():
+    r = (CFG.get("update_repo") or updater.repo_from_git(APP_DIR) or GITHUB_REPO or "").strip()
+    return "" if r.startswith("OWNER/") else r
+
+def check_updates(force=False):
+    if not force and not CFG.get("check_updates", True):
+        return UPDATE
+    try:
+        UPDATE.clear(); UPDATE.update(updater.check(update_repo(), VERSION, update_cache_path(), force))
+        if UPDATE.get("available"):
+            log(f"Update available: {VERSION} -> {UPDATE.get('latest')}  ({UPDATE.get('url')})")
+    except Exception as e:
+        log("update check failed", e)
+    return UPDATE
+
+def update_watch():
+    time.sleep(8)
+    while True:
+        check_updates()
+        time.sleep(3600)
+
+def apply_update():
+    STATE["status"] = "updating"; STATE["current"] = "Downloading update..."
+    try:
+        def prog(msg):
+            STATE["current"] = msg
+        files = updater.apply(UPDATE.get("zip"), APP_DIR, VERSION, DATA_DIR, prog)
+        log(f"Updated to {UPDATE.get('latest')} ({len(files)} files). Restarting...")
+        push_event({"origin": "update", "ok": True, "version": UPDATE.get("latest")})
+        time.sleep(1.5)
+        restart_self()
+    except Exception as e:
+        log("update failed", e)
+        push_event({"origin": "update", "ok": False, "msg": str(e)[:300]})
+        STATE["status"] = "idle"; STATE["current"] = ""
+
+def update_public():
+    u = UPDATE
+    return {k: u.get(k) for k in ("current", "latest", "available", "url", "notes", "name", "dismissed", "error", "checked")}
+
 # ---------------------------------------------------------------- HTTP server
 def public_mod(m):
     return {k: v for k, v in m.items() if not k.startswith("_")}
@@ -2241,6 +2290,7 @@ def state_payload(since=0):
         "champions": list(DD["champs"].values()), "mods": mods, "drop_dir": DROP_DIR,
         "game_dir": game_dir(), "ltmao": bool(ltmao_dir()), "ltk": bool(ltk_dir()),
         "new_days": CFG.get("new_days", NEW_DAYS), "seen_before": load_added().get("_seen_before", 0),
+        "version": VERSION, "update": update_public(),
     }
 
 def request_allowed(h, post):
@@ -2313,7 +2363,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(404, {"error": "no texture"})
             return self.send(200, t, "application/octet-stream")
         if u.path == "/api/settings":
-            return self.send(200, {"game_dir": game_dir(), "library": LIB, "ltmao_dir": ltmao_dir(), "ltk_dir": ltk_dir()})
+            return self.send(200, {"game_dir": game_dir(), "library": LIB, "ltmao_dir": ltmao_dir(), "ltk_dir": ltk_dir(),
+                                   "check_updates": CFG.get("check_updates", True), "update_repo": update_repo(), "version": VERSION})
+        if u.path == "/api/update":
+            return self.send(200, update_public() if not q.get("force") else (check_updates(True) and update_public()))
         if u.path == "/api/jobs":
             with JOB_LOCK:
                 return self.send(200, {"jobs": JOBS[-100:], "queued": len(JOB_Q)})
@@ -2351,7 +2404,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {"results": res})
             data = self.body_json()
             if u.path == "/api/settings":
-                save_config({k: data[k] for k in ("game_dir", "ltmao_dir", "ltk_dir") if k in data})
+                save_config({k: data[k] for k in ("game_dir", "ltmao_dir", "ltk_dir", "check_updates", "update_repo") if k in data})
                 _GAME_DIR["t"] = 0; LTK["t"] = 0
                 newlib = (data.get("library") or "").strip().strip('"')
                 if newlib and os.path.normcase(os.path.abspath(newlib)) != os.path.normcase(LIB):
@@ -2360,6 +2413,16 @@ class Handler(BaseHTTPRequestHandler):
                     threading.Timer(0.8, restart_self).start()
                     return self.send(200, {"restarting": True})
                 return self.send(200, {"game_dir": game_dir(), "ltmao_dir": ltmao_dir(), "ltk_dir": ltk_dir()})
+            if u.path == "/api/update/apply":
+                if not UPDATE.get("available") or not UPDATE.get("zip"):
+                    return self.send(200, {"ok": False, "msg": "No update available"})
+                if STATE["status"] == "updating":
+                    return self.send(200, {"ok": True})
+                threading.Thread(target=apply_update, daemon=True).start()
+                return self.send(200, {"ok": True})
+            if u.path == "/api/update/dismiss":
+                updater.dismiss(update_cache_path(), data.get("version")); UPDATE["dismissed"] = data.get("version")
+                return self.send(200, {"ok": True})
             if u.path == "/api/shutdown":
                 self.send(200, {"ok": True})
                 threading.Timer(0.3, lambda: os._exit(0)).start()
@@ -2589,6 +2652,7 @@ def main():
     threading.Thread(target=ltk_watch, daemon=True).start()
     threading.Thread(target=ltk_add_worker, daemon=True).start()
     threading.Thread(target=conv_worker, daemon=True).start()
+    threading.Thread(target=update_watch, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     log("Running at", url, "(close this window to stop)")
     if want_browser:
