@@ -9,9 +9,9 @@ Point it at the folder where you keep your mods and it tells you, for every mod,
 
 ### ▶ New to mods? Watch the tutorial
 
-[![Watch the 4-minute Skin Vault tutorial](docs/tutorial-thumb.jpg)](https://github.com/ZuperTheGod/skin-vault/releases/download/v1.0.1/Skin-Vault-Tutorial.mp4)
+[![Watch the 4-minute Skin Vault tutorial on YouTube](docs/tutorial-thumb.jpg)](https://www.youtube.com/watch?v=I6yAn8FgaBQ)
 
-A 4-minute walkthrough for complete beginners: what skin mods are, how to install Skin Vault, and how to use every feature. [Download the video (MP4, 24 MB)](https://github.com/ZuperTheGod/skin-vault/releases/download/v1.0.1/Skin-Vault-Tutorial.mp4).
+A 4-minute walkthrough for complete beginners: what skin mods are, how to install Skin Vault, and how to use every feature. **[Watch on YouTube](https://www.youtube.com/watch?v=I6yAn8FgaBQ)** · [download the MP4](https://github.com/ZuperTheGod/skin-vault/releases/download/v1.0.1/Skin-Vault-Tutorial.mp4)
 
 ![Home](docs/home.png)
 
