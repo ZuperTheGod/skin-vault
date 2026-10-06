@@ -5,6 +5,14 @@
 A local, browser-based manager for **League of Legends custom skin mods** (`.fantome`, `.zip`, `.wad.client`).
 Point it at the folder where you keep your mods and it tells you, for every mod, **which champion and which in-game skin it replaces**, shows the official splash art so you pick the right skin in champ select, flags broken or outdated mods, and keeps the folder sorted for you.
 
+![Skin Vault in action: drag & drop import, champion view, 3D preview and compare, LTK Manager](docs/preview.gif)
+
+### ▶ New to mods? Watch the tutorial
+
+[![Watch the 4-minute Skin Vault tutorial](docs/tutorial-thumb.jpg)](https://github.com/ZuperTheGod/skin-vault/releases/download/v1.0.1/Skin-Vault-Tutorial.mp4)
+
+A 4-minute walkthrough for complete beginners: what skin mods are, how to install Skin Vault, and how to use every feature. [Download the video (MP4, 24 MB)](https://github.com/ZuperTheGod/skin-vault/releases/download/v1.0.1/Skin-Vault-Tutorial.mp4).
+
 ![Home](docs/home.png)
 
 ## Features
