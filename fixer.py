@@ -199,7 +199,7 @@ def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path,
                 os.remove(p)
                 step(f"Unpacked {f} with LtMAO")
             elif os.path.isdir(p) and f.lower().endswith(".wad.client"):
-                os.rename(p, os.path.join(wad_dir, f[: -len(".client")]))
+                os.replace(p, os.path.join(wad_dir, f[: -len(".client")]))
         # RAW files go into the champion WAD
         raw = os.path.join(root, "RAW")
         cw = None
@@ -513,7 +513,7 @@ def zip_to_fantome(zip_path, champ_wad_name, ltmao_root, work_root, out_path, lo
         for f in list(os.listdir(wad_dir)):
             p = os.path.join(wad_dir, f)
             if os.path.isdir(p) and f.lower().endswith(".wad.client"):
-                os.rename(p, p[: -len(".client")])
+                os.replace(p, p[: -len(".client")])
         packed = 0
         lt = LtMAO(ltmao_root) if ltmao_root else None
         for f in list(os.listdir(wad_dir)):

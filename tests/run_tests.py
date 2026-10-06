@@ -147,6 +147,18 @@ def duplicate_across_folders():
     os.remove(root_copy); sm.undo_last(); scan()
 
 @test
+def quick_moves_undo():
+    """Regression (Windows): two moves in the same second shared one log name, so undo failed / lost history."""
+    a = os.path.join(LIB, "qa.txt"); b = os.path.join(LIB, "qb.txt")
+    for x in (a, b):
+        open(x, "w").write("x")
+    sm.move_logged([(a, os.path.join(LIB, "q", "qa.txt"))], "test")
+    sm.move_logged([(b, os.path.join(LIB, "q", "qb.txt"))], "test")
+    sm.undo_last(); sm.undo_last()
+    assert os.path.exists(a) and os.path.exists(b), "both moves should be undone"
+    os.remove(a); os.remove(b)
+
+@test
 def import_new_and_duplicate():
     src = os.path.join(TMP, "dl", "Ahri Popstar Test.fantome")
     fixtures.fantome(src, "Ahri Popstar Test", {"assets/characters/ahri/skins/skin05/ahri_skin05.skn": fixtures.skn_bytes(5)})

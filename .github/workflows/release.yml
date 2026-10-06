@@ -1,6 +1,6 @@
 name: release
-# Bump VERSION in skin_manager.py and push to main -> a GitHub Release vX.Y.Z is created automatically.
-# Every Skin Vault install checks for new releases and offers a one-click update.
+# Bump VERSION in skin_manager.py and push to main -> once the tests pass on Windows and Linux,
+# a GitHub Release vX.Y.Z is created. Every Skin Vault install checks for new releases and offers a one-click update.
 on:
   push:
     branches: [main]
@@ -8,18 +8,27 @@ on:
 permissions:
   contents: write
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  test:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt && python tests/run_tests.py
+      - run: pip install -r requirements.txt
+      - run: python tests/run_tests.py
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: Create release if VERSION is new
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          V=$(python -c "import re;print(re.search(r'^VERSION\s*=\s*\"([^\"]+)\"', open('skin_manager.py').read(), re.M).group(1))")
+          V=$(python3 -c "import re;print(re.search(r'^VERSION\s*=\s*\"([^\"]+)\"', open('skin_manager.py').read(), re.M).group(1))")
           if gh release view "v$V" >/dev/null 2>&1; then echo "v$V already released"; exit 0; fi
           gh release create "v$V" --title "Skin Vault v$V" --generate-notes

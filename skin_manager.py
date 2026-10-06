@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -1018,7 +1018,7 @@ def stamp_added(mods):
         if first_run:   # seed from the import logs, so mods dropped in over the last few days are NEW right away
             try:
                 for f in os.listdir(LOG_DIR):
-                    mm = re.match(r"moves-(\d{8}-\d{6})-(import|zip-to-fantome)\.json$", f)
+                    mm = re.match(r"moves-(\d{8}-\d{6})(?:-\d{3})?-(import|zip-to-fantome)\.json$", f)
                     if not mm:
                         continue
                     ts = time.mktime(time.strptime(mm.group(1), "%Y%m%d-%H%M%S"))
@@ -1263,7 +1263,7 @@ def move_logged(moves, label):
         except Exception as e:
             log("move failed", src, e)
     if done:
-        with open(os.path.join(LOG_DIR, f"moves-{time.strftime('%Y%m%d-%H%M%S')}-{label}.json"), "w", encoding="utf-8") as f:
+        with open(new_move_log(label), "w", encoding="utf-8") as f:
             json.dump(done, f, indent=1)
     return done
 
@@ -1283,6 +1283,16 @@ def remove_empty_parents(d):
     except Exception:
         pass
 
+def new_move_log(label):
+    """moves-<date>-<time>-<ms>-<label>.json - unique and in time order even for several moves within a second."""
+    t = time.time()
+    while True:
+        name = f"moves-{time.strftime('%Y%m%d-%H%M%S', time.localtime(t))}-{int(t * 1000) % 1000:03d}-{label}.json"
+        path = os.path.join(LOG_DIR, name)
+        if not os.path.exists(path) and not os.path.exists(path + ".undone"):
+            return path
+        t += 0.001
+
 def undo_last():
     logs = sorted(f for f in os.listdir(LOG_DIR) if f.startswith("moves-") and f.endswith(".json"))
     if not logs:
@@ -1295,7 +1305,7 @@ def undo_last():
             os.makedirs(os.path.dirname(m["from"]), exist_ok=True)
             shutil.move(m["to"], m["from"]); n += 1
             remove_empty_parents(os.path.dirname(m["to"]))
-    os.rename(path, path + ".undone")
+    os.replace(path, path + ".undone")
     return {"undone": n, "msg": f"Moved {n} item(s) back"}
 
 def push_event(ev):
@@ -1538,7 +1548,7 @@ def delete_mods(ids, remove_ltk=False):
             with LOCK:
                 STATE["mods"].pop(mid, None)
     if done:
-        with open(os.path.join(LOG_DIR, f"deleted-{time.strftime('%Y%m%d-%H%M%S')}.json"), "w", encoding="utf-8") as f:
+        with open(os.path.join(LOG_DIR, f"deleted-{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}.json"), "w", encoding="utf-8") as f:
             json.dump(done, f, indent=1)
     ltk_res = None
     if ltk_ids:
