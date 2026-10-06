@@ -67,6 +67,23 @@ def wad_roundtrip():
     assert ver == "3.4" and len(hashes) == 2
 
 @test
+def wad_concurrent_reads():
+    """Regression: 3D compare loads models in parallel from one cached WAD; reads must not interleave."""
+    files = {f"assets/x/{i}.bin": bytes([i % 251]) * (20000 + i * 37) for i in range(60)}
+    p = os.path.join(TMP, "conc.wad.client"); open(p, "wb").write(fixtures.wad_bytes(files))
+    w = lol3d.Wad(p, "conc.wad.client")
+    want = {lol3d.path_hash(k): v for k, v in files.items()}
+    errors = []
+    def worker(seed):
+        keys = list(want); import random; random.Random(seed).shuffle(keys)
+        for k in keys * 3:
+            if w.read(k) != want[k]:
+                errors.append(k)
+    ts = [threading.Thread(target=worker, args=(i,)) for i in range(6)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert not errors, f"{len(errors)} corrupted reads"
+
+@test
 def skn_parse():
     m = lol3d.parse_skn(fixtures.skn_bytes())
     assert m["vcount"] == 3 and m["submeshes"][0]["name"] == "Body"

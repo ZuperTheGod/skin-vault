@@ -9,7 +9,7 @@ lol3d - read League of Legends game/mod files well enough to show a skin in 3D.
 Mod files are layered on top of the game's own files, exactly like the game does
 when the mod is enabled, so the viewer shows what you'd actually see in game.
 """
-import os, io, re, struct, zlib, gzip, zipfile, base64
+import os, io, re, struct, zlib, gzip, zipfile, base64, threading
 
 try:
     import zstandard as _zstd
@@ -103,6 +103,7 @@ class Wad:
         else:
             raise ValueError(f"unsupported WAD {self.major}.{self.minor}")
         self._subchunks = None
+        self._lock = threading.Lock()     # one shared file handle: seek+read must not interleave between threads
 
     def __contains__(self, h):
         return h in self.entries
@@ -128,8 +129,9 @@ class Wad:
 
     def read(self, h, allow_chunked=True):
         off, cs, us, t, nsub, fsub = self.entries[h]
-        self.f.seek(off)
-        data = self.f.read(cs)
+        with self._lock:
+            self.f.seek(off)
+            data = self.f.read(cs)
         if t == 0:
             return data
         if t == 1:
