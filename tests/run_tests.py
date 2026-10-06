@@ -41,9 +41,11 @@ def by_name(name):
     return [m for m in sm.STATE["mods"].values() if m["name"] == name]
 
 def scan():
+    sm.STATE["scan_error"] = None
     sm.scan_library()
     while sm.STATE["status"] == "scanning":
         time.sleep(0.05)
+    assert not sm.STATE.get("scan_error"), "scan crashed: " + str(sm.STATE.get("scan_error"))
 
 # ------------------------------------------------------------------ setup
 sm.load_ddragon(); sm.HDB.load(); scan()
@@ -113,6 +115,19 @@ def organize_and_undo():
     sm.undo_last(); scan()
     for f in before:
         assert os.path.exists(os.path.join(LIB, f)), f"undo didn't restore {f}"
+
+@test
+def duplicate_across_folders():
+    """Regression: a duplicate left at the library root next to its organized copy crashed every scan."""
+    src = os.path.join(LIB, "Ahri", "SG Ahri custom.fantome")
+    plan = sm.organize_plan(); sm.organize_apply([p["id"] for p in plan]); scan()
+    root_copy = os.path.join(LIB, "SG Ahri custom copy.fantome")
+    organized = [m for m in sm.STATE["mods"].values() if m["name"] == "SG Ahri custom" and m["rel"].endswith(".fantome")]
+    shutil.copy2(os.path.join(LIB, organized[0]["rel"]), root_copy)
+    scan()
+    mine = [m for m in sm.STATE["mods"].values() if m["rel"] == "SG Ahri custom copy.fantome"]
+    assert mine and mine[0]["dup_of"], "root copy missing or not flagged as a duplicate (scan crashed?)"
+    os.remove(root_copy); sm.undo_last(); scan()
 
 @test
 def import_new_and_duplicate():

@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -1086,9 +1086,12 @@ def scan_library():
             rec["id"] = rid(rel)
             rec["top"] = top_folder(p)
             mods[rec["id"]] = rec
-        apply_overrides(mods)
-        stamp_added(mods)
-        post_process(mods)
+        for step in (apply_overrides, stamp_added, post_process):
+            try:                       # a bug in one cross-mod check must never hide the whole library
+                step(mods)
+            except Exception as e:
+                traceback.print_exc()
+                STATE["scan_error"] = f"{step.__name__}: {e}"
         save_cache(new_cache)
         with LOCK:
             STATE["mods"] = mods
@@ -1105,8 +1108,9 @@ def scan_library():
                     CONV_Q.extend(i for i in ids if i not in CONV_Q)
                 CONV_EVENT.set()
         refresh_ltk_bg()
-    except Exception:
+    except Exception as e:
         traceback.print_exc()
+        STATE["scan_error"] = str(e)
     finally:
         STATE["status"] = "idle"; STATE["current"] = ""
         if _RESCAN["pending"]:
@@ -1125,8 +1129,8 @@ def post_process(mods):
             by_sig.setdefault(m["content_sig"], []).append(m)
         m["dup_of"] = None
     def better(a, b):  # which copy to keep: correct folder, shorter name, newer
-        sa = (a.get("top") and folder_champ(os.path.join(LIB, a["rel"])) == a.get("champ"), -len(a["filename"]), a.get("mtime", 0))
-        sb = (b.get("top") and folder_champ(os.path.join(LIB, b["rel"])) == b.get("champ"), -len(b["filename"]), b.get("mtime", 0))
+        sa = (bool(a.get("top") and folder_champ(os.path.join(LIB, a["rel"])) == a.get("champ")), -len(a["filename"]), a.get("mtime") or 0)
+        sb = (bool(b.get("top") and folder_champ(os.path.join(LIB, b["rel"])) == b.get("champ")), -len(b["filename"]), b.get("mtime") or 0)
         return sa >= sb
     seen_dupe = set()
     for group in list(by_fp.values()) + list(by_sig.values()):
