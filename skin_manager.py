@@ -2345,11 +2345,22 @@ def request_allowed(h, post):
     """Only answer pages served by Skin Vault itself: the Host must be localhost (blocks DNS rebinding) and
     state-changing requests must carry the X-SkinVault header (blocks other websites posting to us)."""
     host = (h.headers.get("Host") or "").split(":")[0].lower()
-    if host not in ("127.0.0.1", "localhost", "[::1]", ""):
-        h.send_response(403); h.end_headers(); return False
-    if post and h.headers.get("X-SkinVault") != "1":
-        h.send_response(403); h.end_headers(); return False
-    return True
+    if host in ("127.0.0.1", "localhost", "[::1]", "") and not (post and h.headers.get("X-SkinVault") != "1"):
+        return True
+    # refuse - but read (and discard) any request body first, or Windows resets the connection
+    # before the client sees the 403
+    try:
+        n = min(int(h.headers.get("Content-Length") or 0), 64 << 20)
+        while n > 0:
+            chunk = h.rfile.read(min(n, 1 << 16))
+            if not chunk:
+                break
+            n -= len(chunk)
+    except Exception:
+        pass
+    h.send_response(403); h.send_header("Content-Length", "0"); h.send_header("Connection", "close"); h.end_headers()
+    h.close_connection = True
+    return False
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
