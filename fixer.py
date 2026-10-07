@@ -396,7 +396,39 @@ def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path,
             if patched:
                 step(f"Pointed {patched} bin file(s) at the TEX textures (ritobin)")
 
-        if not report["mapped"] and not report["bins_patched"]:
+        # ---- 7b. bring bin property types up to the current patch (game's own bin = schema)
+        retyped, settings = 0, 0
+        for wd in [os.path.join(wad_dir, f) for f in os.listdir(wad_dir) if os.path.isdir(os.path.join(wad_dir, f))]:
+            for dp, dn, fn in os.walk(wd):
+                for f in fn:
+                    if not f.lower().endswith(".bin"):
+                        continue
+                    full = os.path.join(dp, f)
+                    rel = os.path.relpath(full, wd).replace("\\", "/")
+                    m = re.match(r"^([0-9a-fA-F]{16})\.bin$", rel)
+                    h = int(m.group(1), 16) if m else lol3d.path_hash(rel.lower())
+                    if h not in game_wad.entries:
+                        continue
+                    try:
+                        gb = os.path.join(W, f"game-{h:016x}.bin"); gt = gb[:-4] + ".py"; mt = full[:-4] + ".rt.py"
+                        open(gb, "wb").write(game_wad.read(h))
+                        lt.bin_to_text(gb, gt); lt.bin_to_text(full, mt)
+                        new_txt, n, unhandled = retype_bin_text(open(mt, encoding="utf-8", errors="replace").read(),
+                                                                open(gt, encoding="utf-8", errors="replace").read())
+                        if n:
+                            open(mt, "w", encoding="utf-8").write(new_txt)
+                            lt.text_to_bin(mt, full)
+                            retyped += 1; settings += n
+                        for u in unhandled[:5]:
+                            report["warnings"].append(f"{rel}: {u} changed in a patch and couldn't be converted automatically")
+                        os.remove(mt)
+                    except Exception as e:
+                        report["warnings"].append(f"Couldn't update {rel} to the current patch: {e}")
+        report["bins_retyped"] = retyped
+        if retyped:
+            step(f"Updated {settings} outdated setting(s) in {retyped} bin file(s) to the current patch's types")
+
+        if not report["mapped"] and not report["bins_patched"] and not report.get("bins_retyped"):
             report["warnings"].append("Nothing needed changing - the mod's files already match what the game loads, "
                                       "or it doesn't contain a model/texture for this skin.")
 
@@ -428,6 +460,72 @@ def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path,
         return report
     finally:
         shutil.rmtree(W, ignore_errors=True)
+
+# ------------------------------------------------------------------ bin property types (patch changes)
+_RT_FIELD = re.compile(r'^(\s*)([^\s:={}][^:={}]*?)\s*:\s*([\w\[\],]+)\s*=\s*(.*?)\s*$')
+_RT_RENAMES = {("string", "file"), ("option[string]", "option[file]"), ("list[string]", "list[file]"),
+               ("list2[string]", "list2[file]"), ("u8", "u16"), ("u8", "u32"), ("u16", "u32"), ("i8", "i16"),
+               ("i8", "i32"), ("i16", "i32"), ("embed", "pointer"), ("pointer", "embed")}
+
+def _rt_walk(text):
+    """Yield (line_no, line, scope, field_match) for ritobin text; scope = innermost class/container label."""
+    stack = []
+    for i, line in enumerate(text.split("\n")):
+        t = line.strip()
+        m = _RT_FIELD.match(line)
+        scope = stack[-1] if stack else ""
+        yield i, line, scope, m
+        if m:
+            rest = m.group(4)
+            if rest.endswith("{"):
+                cls = rest[:-1].strip()
+                stack.append(cls if re.match(r"^[A-Za-z_]\w*$", cls) else m.group(2).strip())
+            continue
+        if t.endswith("{"):
+            lab = t[:-1].strip()
+            if "=" in lab:
+                lab = lab.split("=", 1)[1].strip()
+            stack.append(lab if re.match(r"^[A-Za-z_]\w*$", lab) else "{}")
+        if t.startswith("}") and stack:
+            stack.pop()
+            if t.count("{") and t.endswith("{"):   # "} else {" style - not produced by ritobin, keep balanced
+                stack.append("{}")
+
+def retype_bin_text(mod_text, game_text):
+    """Bring a mod's bin (ritobin text) in line with the current game's property types.
+    Riot sometimes changes a property's type in a patch (string -> file, u8 -> u16, embed -> pointer, a string
+    wrapped in a new struct...). Old mods keep the old type and the game rejects them. Uses the game's own copy
+    of the bin as the schema: (enclosing class, property) -> type. Returns (new_text, changed, unhandled)."""
+    schema, ptr_class = {}, {}
+    for _, line, scope, m in _rt_walk(game_text):
+        if not m:
+            continue
+        key = (scope, m.group(2).strip())
+        schema.setdefault(key, set()).add(m.group(3))
+        rest = m.group(4)
+        if m.group(3) in ("pointer", "embed") and rest.endswith("{"):
+            ptr_class.setdefault(key, set()).add(rest[:-1].strip())
+    out, changed, unhandled = [], 0, []
+    for _, line, scope, m in _rt_walk(mod_text):
+        if not m:
+            out.append(line); continue
+        ind, name, mt, rest = m.group(1), m.group(2).strip(), m.group(3), m.group(4)
+        gts = schema.get((scope, name))
+        if not gts or len(gts) != 1 or mt in gts:
+            out.append(line); continue
+        gt = next(iter(gts))
+        if (mt, gt) in _RT_RENAMES:
+            out.append(f"{ind}{m.group(2)}: {gt} = {rest}"); changed += 1
+        elif gt == "pointer" and not rest.endswith("{") and len(ptr_class.get((scope, name), ())) == 1:
+            cls = next(iter(ptr_class[(scope, name)]))
+            inner = schema.get((cls, name))
+            if inner == {mt}:          # value moved into a new struct with a same-named field
+                out += [f"{ind}{name}: pointer = {cls} {{", f"{ind}    {name}: {mt} = {rest}", f"{ind}}}"]; changed += 1
+            else:
+                out.append(line); unhandled.append(f"{scope}.{name}: {mt} -> {gt}")
+        else:
+            out.append(line); unhandled.append(f"{scope}.{name}: {mt} -> {gt}")
+    return "\n".join(out), changed, unhandled
 
 def _extract(zf, dst):
     for i in zf.infolist():

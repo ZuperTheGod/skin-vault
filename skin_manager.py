@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -803,6 +803,34 @@ def fingerprint(path, size):
         return None
     return h.hexdigest()
 
+def check_bin_types(path, rec, col):
+    """Flag skin bins that still use property types from an older patch (the game refuses those)."""
+    champ = rec.get("champ")
+    if not champ or not col.has_content:
+        return
+    c = champ.lower()
+    want = {lol3d.path_hash(f"data/characters/{c}/skins/skin{n}.bin"): n for n in range(0, 100)}
+    hits = [h for h in want if h in col.hashes]
+    if not hits:
+        return
+    try:
+        gw = lol3d.game_wad(game_dir(), champ)
+        if not gw:
+            return
+        layer = lol3d.mod_layer(path)
+        bad = 0
+        for h in hits:
+            if h in layer and h in gw.entries:
+                bad += lol3d.bin_type_mismatches(layer[h](), gw.read(h))
+    except Exception as e:
+        log("bin type check failed", os.path.basename(path), e)
+        return
+    if bad:
+        rec["outdated"] = True
+        rec["bin_type_issues"] = bad
+        rec["issues"].append({"level": "warn", "msg": f"Made for an older game patch: {bad} skin setting(s) changed type since, so the game "
+                              "rejects them (LTK Manager shows a repair badge). Click Auto-fix to update it."})
+
 def analyze_path(path, context_champ=None):
     """Analyze one mod unit (file or folder). Returns record dict."""
     is_dir = os.path.isdir(path)
@@ -839,6 +867,7 @@ def analyze_path(path, context_champ=None):
         col.image = None
         display = re.sub(r"\.(fantome|zip)$", "", os.path.basename(ch["member"]), flags=re.I)
     rec = finalize(col, display, context_champ)
+    check_bin_types(path, rec, col)
     if wrapped:
         rec["wrapped"] = wrapped
         rec["issues"].append({"level": "info", "msg": f"Zip wrapping {os.path.basename(wrapped)} - Organize/Import unwraps it automatically"})
@@ -861,7 +890,7 @@ STATE = {"status": "idle", "progress": 0, "total": 0, "current": "", "last_scan"
          "mods": {}, "folders": {}, "loose": [], "events": [], "scan_seconds": 0}
 LOCK = threading.RLock()
 CACHE_PATH = os.path.join(DATA_DIR, "scan_cache.json")
-SCAN_VERSION = 7
+SCAN_VERSION = 8
 
 def load_cache():
     try:
@@ -1722,7 +1751,7 @@ def run_fix(job):
         raise RuntimeError("No champion detected - use Reassign first")
     is_ltk = job["mod_id"].startswith("ltk:")
     stem = re.sub(r"\.(fantome|zip|wad\.client|wad)$", "", os.path.basename(path.rstrip("\\/")), flags=re.I)
-    stem = re.sub(r"\s*\(fixed\)$", "", stem)
+    stem = re.sub(r"(\s*\(fixed\)(\s*\(\d+\))?)+$", "", stem)   # "X (fixed) (2) (fixed)" -> "X"
     if is_ltk:
         out_dir = os.path.join(champ_dir_for(champ), skin_folder_name({"champ": champ, "applies_to": job["slot"], "type": "Skin"}))
         stem = safe_name(m.get("name") or stem)

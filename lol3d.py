@@ -380,6 +380,76 @@ class BinReader:
             return self.u8() != 0
         raise ValueError(f"unknown bin type {t}")
 
+def bin_type_map(data):
+    """(enclosing class hash, field hash) -> set of type signatures, for every property in a PROP bin.
+    Values are skipped; only the layout is recorded. Used to spot properties whose type changed in a patch."""
+    d = data; p = [0]; types = {}
+    def u8():
+        v = d[p[0]]; p[0] += 1; return v
+    def u16():
+        v = struct.unpack_from("<H", d, p[0])[0]; p[0] += 2; return v
+    def u32():
+        v = struct.unpack_from("<I", d, p[0])[0]; p[0] += 4; return v
+    def fields(scope, n):
+        for _ in range(n):
+            name = u32(); t = u8()
+            types.setdefault((scope, name), set()).add(value(t))
+    def value(t):
+        if t in BinReader.PRIM:
+            p[0] += BinReader.PRIM[t]; return str(t)
+        if t == 16:
+            n = u16(); p[0] += n; return "16"
+        if t in (BinReader.LIST, BinReader.LIST2):
+            et = u8(); size = u32(); end = p[0] + size; cnt = u32()
+            for _ in range(cnt):
+                value(et)
+            p[0] = end; return f"L{et}"
+        if t in (BinReader.POINTER, BinReader.EMBED):
+            cls = u32()
+            if cls:
+                size = u32(); end = p[0] + size
+                fields(cls, u16()); p[0] = end
+            return str(t)
+        if t == BinReader.LINK:
+            p[0] += 4; return str(t)
+        if t == BinReader.OPTION:
+            et = u8()
+            if u8():
+                value(et)
+            return f"O{et}"
+        if t == BinReader.MAP:
+            kt = u8(); vt = u8(); size = u32(); end = p[0] + size; cnt = u32()
+            for _ in range(cnt):
+                value(kt); value(vt)
+            p[0] = end; return f"M{kt},{vt}"
+        if t == BinReader.FLAG:
+            p[0] += 1; return str(t)
+        raise ValueError(f"unknown bin type {t}")
+    if d[:4] == b"PTCH":
+        p[0] = 16
+    if d[p[0]:p[0] + 4] != b"PROP":
+        raise ValueError("not a PROP bin")
+    p[0] += 4
+    if u32() >= 2:
+        for _ in range(u32()):
+            n = u16(); p[0] += n
+    count = u32()
+    cts = struct.unpack_from(f"<{count}I", d, p[0]); p[0] += 4 * count
+    for ct in cts:
+        size = u32(); end = p[0] + size
+        try:
+            u32(); fields(ct, u16())
+        except Exception:
+            pass
+        p[0] = end
+    return types
+
+def bin_type_mismatches(mod_bin, game_bin):
+    """How many properties in the mod's bin use a different type than the current game's copy (e.g. a 2024 mod
+    after Riot turned a string into a file/pointer). The game rejects those - LTK reports them as fatal."""
+    g = bin_type_map(game_bin); m = bin_type_map(mod_bin)
+    return sum(1 for k, ts in m.items() if k in g and len(g[k]) == 1 and ts - g[k])
+
 H = {k: fnv1a(k) for k in [
     "skinMeshProperties", "skeleton", "simpleSkin", "texture", "material", "materialOverride", "submesh",
     "initialSubmeshToHide", "initialSubmeshAvatarToHide", "skinScale", "samplerValues", "textureName", "texturePath",

@@ -9,7 +9,7 @@ the LTK Manager integration (against a fake LTK data folder), the HTTP API and f
 
 Set SKINVAULT_TEST_GAME to a League "Game" folder to also run the 3D / game-file tests.
 """
-import os, sys, json, time, shutil, tempfile, threading, traceback, urllib.request, urllib.error, subprocess, socket, zipfile
+import os, sys, json, time, shutil, tempfile, threading, traceback, urllib.request, urllib.error, subprocess, socket, zipfile, struct
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TMP = tempfile.mkdtemp(prefix="skinvault-test-")
@@ -82,6 +82,56 @@ def wad_concurrent_reads():
     ts = [threading.Thread(target=worker, args=(i,)) for i in range(6)]
     [t.start() for t in ts]; [t.join() for t in ts]
     assert not errors, f"{len(errors)} corrupted reads"
+
+def _prop(fields):
+    """Minimal PROP bin: one entry of class 0x1111 with the given [(field_hash, type, raw_bytes)]."""
+    body = struct.pack("<IH", 0x2222, len(fields)) + b"".join(struct.pack("<IB", h, t) + raw for h, t, raw in fields)
+    return b"PROP" + struct.pack("<II", 3, 0) + struct.pack("<I", 1) + struct.pack("<I", 0x1111) + struct.pack("<I", len(body)) + body
+
+@test
+def bin_type_patch_changes():
+    """A mod made before Riot changed a property's type is detected and converted (LTK 'bin/property-type')."""
+    s16 = lambda v: struct.pack("<H", len(v)) + v.encode()
+    old = _prop([(1, 16, s16("a.tex")), (2, 3, b"\x05")])                    # string, u8
+    new = _prop([(1, 18, struct.pack("<Q", 7)), (2, 5, b"\x05\x00")])       # file, u16
+    assert lol3d.bin_type_mismatches(old, new) == 2 and lol3d.bin_type_mismatches(new, new) == 0
+    game_txt = """entries: map[hash,embed] = {
+    "A" = VfxEmitterDefinitionData {
+        texture: file = "x.tex"
+        flags: u16 = 1
+        textureMult: pointer = VfxTextureMultDefinitionData {
+            textureMult: string = "m.tex"
+        }
+        childParticleSetDefinition: pointer = VfxChildParticleSetDefinitionData {
+            childrenIdentifiers: list[embed] = {}
+        }
+        iconCircle: option[file] = {
+            "c.tex"
+        }
+        other: string = "keep"
+    }
+}"""
+    mod_txt = """entries: map[hash,embed] = {
+    "B" = VfxEmitterDefinitionData {
+        texture: string = "y.tex"
+        flags: u8 = 197
+        textureMult: string = "mine.tex"
+        childParticleSetDefinition: embed = VfxChildParticleSetDefinitionData {
+            childrenIdentifiers: list[embed] = {}
+        }
+        iconCircle: option[string] = {
+            "d.tex"
+        }
+        other: string = "still"
+    }
+}"""
+    out, n, unhandled = sm.fixer.retype_bin_text(mod_txt, game_txt)
+    assert n == 5 and not unhandled, (n, unhandled)
+    for want in ('texture: file = "y.tex"', "flags: u16 = 197", "textureMult: pointer = VfxTextureMultDefinitionData {",
+                 'textureMult: string = "mine.tex"', "childParticleSetDefinition: pointer =", "iconCircle: option[file] =",
+                 'other: string = "still"'):
+        assert want in out, want
+    assert sm.fixer.retype_bin_text(out, game_txt)[1] == 0, "second pass should change nothing"
 
 @test
 def skn_parse():
