@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -754,7 +754,8 @@ def finalize(col, display_name, context_champ=None):
         if col.loose_files:
             issues.append({"level": "error", "msg": f"Raw game files ({col.loose_files}) not packaged as a mod - open cs:lol Manager > Create new mod and add these files, then drop the result here"})
         else:
-            issues.append({"level": "error", "msg": "No game files inside - this isn't a usable mod"})
+            issues.append({"level": "warn", "msg": "No League game files inside - this isn't a skin mod (it may be pictures, a tool or "
+                           "something else). You can move it out of your mod folder."})
     if rec.get("folder_disagrees") is not None and champ:
         issues.append({"level": "info", "msg": f"Its files are in the {('base' if rec['folder_disagrees']==0 else 'skin%02d' % rec['folder_disagrees'])} folder, "
                        f"but the game loads them on {skin_label(champ, applies)} - pick that one in game"})
@@ -852,6 +853,9 @@ def analyze_path(path, context_champ=None):
             try:
                 with zipfile.ZipFile(path) as zf:
                     bad = None
+                    if is_app_copy_names(zf.namelist()):
+                        return {"name": display, "filename": base, "is_app": True, "issues": [], "children": [],
+                                "kind": "file", "champ": None, "type": "Other", "skins": [], "applies_to": None, "wads": []}
                     scan_zip(zf, col)
             except zipfile.BadZipFile:
                 col.errors.append("Archive is corrupted or not a real zip/fantome (re-download it)")
@@ -895,7 +899,7 @@ STATE = {"status": "idle", "progress": 0, "total": 0, "current": "", "last_scan"
          "mods": {}, "folders": {}, "loose": [], "events": [], "scan_seconds": 0}
 LOCK = threading.RLock()
 CACHE_PATH = os.path.join(DATA_DIR, "scan_cache.json")
-SCAN_VERSION = 9
+SCAN_VERSION = 10
 
 def load_cache():
     try:
@@ -970,6 +974,19 @@ def dir_size(path):
                 pass
     return total
 
+APP_MARKERS = ("skin_manager.py", "lol3d.py", "index.html")
+
+def is_app_copy_names(names):
+    """True if a list of file paths looks like a copy of Skin Vault itself (repo zip, release zip, extracted app)."""
+    base = {n.replace("\\", "/").rsplit("/", 1)[-1].lower() for n in names}
+    return all(m in base for m in APP_MARKERS)
+
+def is_app_dir(path):
+    try:
+        return is_app_copy_names(os.listdir(path))
+    except Exception:
+        return False
+
 def discover():
     """Find every mod unit in the library."""
     units = []
@@ -988,6 +1005,8 @@ def discover():
                     loose.append(e.name)
                 continue
             if e.is_dir(follow_symlinks=False):
+                if is_app_dir(e.path) or os.path.normcase(os.path.abspath(e.path)) in (os.path.normcase(APP_DIR), os.path.normcase(HOME_DIR)):
+                    continue          # a copy of Skin Vault itself - never a mod
                 if is_mod_dir(e.path, depth):
                     units.append(e.path)
                 elif depth < 6:
@@ -1115,6 +1134,8 @@ def scan_library():
                 rec = {"name": os.path.basename(p), "filename": os.path.basename(p), "kind": "file", "issues":
                        [{"level": "error", "msg": f"Scan failed: {e}"}], "champ": None, "type": "Other", "skins": [],
                        "applies_to": None, "size": 0, "mtime": 0, "children": [], "wads": []}
+            if rec.get("is_app"):
+                continue          # Skin Vault's own files (e.g. its download zip) aren't mods
             rec = dict(rec)
             rec["rel"] = rel
             rec["id"] = rid(rel)
@@ -1355,6 +1376,16 @@ def import_path(src, origin="drop"):
     results = []
     base = os.path.basename(src)
     rec = analyze_path(src)
+    if rec.get("is_app"):
+        msg = "That's a copy of Skin Vault itself, not a skin mod - it was left out of your library"
+        try:
+            if os.path.normcase(os.path.dirname(os.path.abspath(src))) == os.path.normcase(os.path.abspath(INCOMING_DIR)):
+                os.remove(src)                       # browser upload: just a temp copy
+            else:
+                move_logged([(src, unique_path(os.path.join(UNSORTED_DIR, base)))], "not-a-mod")
+        except Exception:
+            pass
+        return [{"file": base, "ok": False, "msg": msg}]
     if rec["children"]:
         # unpack each nested mod
         with zipfile.ZipFile(src) as zf:
@@ -1904,8 +1935,13 @@ def load_ltk(force=False):
                 ms.sort(key=lambda x: (x["order"] is None, x["order"] or 0))
                 for m in ms:
                     m["conflict_with"] = [x["name"] for x in ms if x is not m]
-        LTK.update(found=True, mods=mods, profile=prof.get("name"), t=time.time(), error=None)
-        push_event({"ltk_changed": True, "file": "", "ok": True, "msg": "", "origin": "ltk"})
+        sig = hashlib.md5(json.dumps(sorted((k, v.get("enabled"), v.get("name"), v.get("lib_id"), v.get("health"),
+                                             tuple(v.get("conflict_with") or ())) for k, v in mods.items()),
+                                     default=str).encode()).hexdigest()
+        changed = sig != LTK.get("sig")
+        LTK.update(found=True, mods=mods, profile=prof.get("name"), t=time.time(), error=None, sig=sig)
+        if changed:   # only tell the page when something actually changed (it reloads on this event)
+            push_event({"ltk_changed": True, "file": "", "ok": True, "msg": "", "origin": "ltk"})
     except Exception as ex:
         traceback.print_exc()
         LTK.update(error=str(ex))

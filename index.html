@@ -140,6 +140,10 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--panel2)}
 .menu{position:relative}
 .btn.upd{background:#123524;border-color:#2f8f5b;color:#7ee2a8}.btn.upd:hover{background:#18452f}
 .upd-notes{white-space:pre-wrap;background:var(--panel);border:1px solid var(--line2);border-radius:8px;padding:10px 12px;max-height:300px;overflow:auto;font-size:13px;color:var(--muted)}
+.ltk-ctl{cursor:pointer;margin-left:4px}.ltk-ctl:hover{border-color:var(--line2);color:var(--text)}.ltk-ctl.bad:hover{border-color:var(--err);color:#ffb3b5}
+@keyframes jumpflash{0%{background:rgba(240,199,94,.35)}100%{background:transparent}}.jumped{animation:jumpflash 1.2s ease-out}
+#jumpLetter{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);font:700 72px Cinzel,serif;color:var(--gold2);background:rgba(10,14,22,.85);border:1px solid var(--line2);border-radius:18px;padding:6px 34px;pointer-events:none;opacity:0;z-index:90}
+#jumpLetter.show{animation:jumpshow .7s ease-out}@keyframes jumpshow{0%{opacity:1}60%{opacity:1}100%{opacity:0}}
 .menu-pop{position:absolute;right:0;top:110%;background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:6px;display:none;min-width:240px;z-index:30;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 .menu-pop.show{display:block}
 .menu-pop button{display:block;width:100%;text-align:left;background:none;border:0;padding:8px 10px;border-radius:6px;font-size:13px}
@@ -449,6 +453,15 @@ async function api(url, body){
   const r = await fetch(url, body===undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json','X-SkinVault':'1'}, body:JSON.stringify(body)});
   return r.json();
 }
+// ---------- click-safe DOM updates: skip identical redraws, never swap elements mid-click
+let _ptrDown = false; const _pending = new Map();
+document.addEventListener('pointerdown', ()=>{ _ptrDown = true; }, true);
+document.addEventListener('pointerup', ()=>{ _ptrDown = false; setTimeout(()=>{ if (_ptrDown) return; for (const [el, h] of _pending) setHTML(el, h); _pending.clear(); }, 60); }, true);
+function setHTML(el, h){
+  if (el._h === h && el.firstChild === el._first) return;     // identical and nobody else touched it
+  if (_ptrDown){ _pending.set(el, h); return; }
+  _pending.delete(el); el.innerHTML = h; el._h = h; el._first = el.firstChild;
+}
 async function load(){
   const d = await api('/api/state');
   if (d.setup){ renderSetup(d); return false; }
@@ -531,7 +544,7 @@ function renderSide(){
   h += rows.map(r=>`<div class="crow ${S.sel===r.c.id?'sel':''} ${r.n?'':'empty'}" onclick="select('${r.c.id}')">
       <img loading="lazy" src="${DD(S.data.ddragon)}/img/champion/${r.c.icon}" alt="">
       <div class="nm">${esc(r.c.name)}</div>${r.ms.some(isNew)?'<span class="newpill">NEW</span>':''}${r.sev?`<span class="dot ${r.sev}"></span>`:''}${r.n?`<span class="badge">${r.n}</span>`:''}</div>`).join('');
-  el.innerHTML = h || '<div style="padding:20px;color:var(--dim)">No matches</div>';
+  setHTML(el, h || '<div style="padding:20px;color:var(--dim)">No matches</div>');
 }
 function select(k){ S.sel=k; renderSide(); renderMain(); document.getElementById('main').scrollTop=0; }
 function toggle(f){ S.filters[f]=!S.filters[f]; document.getElementById({hasMods:'tgHas',issuesOnly:'tgIss',allSkins:'tgAll'}[f]).classList.toggle('on',S.filters[f]); renderSide(); renderMain(); }
@@ -638,7 +651,7 @@ function renderMain(){
         <div class="mods">${g.mods.map(modHtml).join('') || '<div style="color:var(--dim);font-size:13px">No mods for this skin</div>'}</div></div></div>`;
   }
   h += `</div>`;
-  el.innerHTML = h;
+  setHTML(el, h);
   if (S.flash){ const n=document.getElementById('mod-'+S.flash); if(n) n.scrollIntoView({block:'center'}); S.flash=null; }
 }
 
@@ -646,21 +659,21 @@ function renderNew(el){
   const ms = newMods().filter(matchQ);
   const day = t => { const d = new Date(t*1000), n = new Date(); const diff = Math.floor((new Date(n.toDateString()) - new Date(d.toDateString()))/86400000); return diff===0?'Today':diff===1?'Yesterday':d.toLocaleDateString(undefined,{weekday:'long', month:'short', day:'numeric'}); };
   const groups = {}; ms.forEach(m=>{ const k = day(m.added_at); (groups[k]=groups[k]||[]).push(m); });
-  el.innerHTML = `<div class="hero" style="height:130px"><div class="hero-in"><div><h1>Recently added</h1><div class="sub">${ms.length} new mod${ms.length===1?'':'s'} in the last ${S.data.new_days||3} days</div></div>
+  setHTML(el, `<div class="hero" style="height:130px"><div class="hero-in"><div><h1>Recently added</h1><div class="sub">${ms.length} new mod${ms.length===1?'':'s'} in the last ${S.data.new_days||3} days</div></div>
       <div class="meta" style="margin-left:auto"><button class="btn small" onclick="markSeen()">✓ Mark all as seen</button></div></div></div>
     <div class="content">${ms.length?'':'<div class="empty-state">Nothing new. Drop mods on this window and they show up here.</div>'}
     ${Object.entries(groups).map(([k,list])=>`<div class="sec-label" style="padding:6px 0 8px">${esc(k)} · ${list.length}</div><div class="mods" style="margin-bottom:18px">${list.map(m=>{
         const c = S.champs[m.champ];
         const art = c && m.applies_to!=null ? `<img loading="lazy" src="${loadingArt(c,m.applies_to)}" style="width:44px;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--line2);flex:none" onerror="this.style.display='none'">` : '';
         return `<div style="display:flex;gap:10px;align-items:stretch">${art}<div style="flex:1;min-width:0">${modHtml(m)}</div></div>`; }).join('')}</div>`).join('')}
-    </div>`;
+    </div>`);
 }
 function renderHome(el){
   const ms=S.mods, e=ms.filter(m=>m.severity==='error').length, w=ms.filter(m=>m.severity==='warn').length;
   const dup=ms.filter(m=>m.dup_of).length, uns=ms.filter(m=>!m.champ).length;
   const plan = S.planCount;
   const evs = (S.events||[]).slice(-12).reverse();
-  el.innerHTML = `<div class="empty-state">
+  setHTML(el, `<div class="empty-state">
     <div class="drop-hint"><h2>Drop new skin mods anywhere</h2>
       <div>Drag .fantome / .zip / .wad.client files onto this window — or save downloads straight into<br><code>${esc(S.data.drop_dir)}</code><br>Each one is identified and moved into <code>Champion\\Skin\\</code> automatically.</div></div>
     <div class="cards">
@@ -677,7 +690,7 @@ function renderHome(el){
     ${S.data.loose && S.data.loose.length?`<div style="margin-top:18px;font-size:12.5px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px"><b>Skipped loose files</b> (not packaged mods - they were extracted straight into a folder):${S.data.loose.map(x=>`<div class="path">• ${esc(x)}</div>`).join('')}</div>`:''}
     <div class="recent"><h4>Recent imports</h4>${evs.length?evs.map(evHtml).join(''):'<div style="color:var(--dim);font-size:13px">Nothing imported this session yet.</div>'}</div>
     <p style="margin-top:28px;font-size:12px;color:var(--dim)">Pick a champion on the left to see their mods grouped by the skin you need to select in game.</p>
-  </div>`;
+  </div>`);
 }
 function evHtml(e){ return `<div class="ev" onclick="${e.champ?`goMod('${e.champ}','${e.id||''}')`:''}">${e.ok?(e.duplicate?'⧉':'✔'):'✖'} <b>${esc(e.file)}</b><div style="color:var(--muted);font-size:12px">${esc(e.msg)}</div></div>`; }
 function goMod(champ,id){ S.flash=id; select(champ); }
@@ -783,7 +796,30 @@ function ltkBadge(m){ const x = ltkFor(m);
   const stg = S.ltkStage[m.id];
   if (!x && stg==='converting') return `<span class="chip t"><span class="spin" style="width:9px;height:9px;display:inline-block;vertical-align:-1px;margin-right:4px"></span>Converting to .fantome…</span>`;
   if(!x && S.ltkAdded[m.id]) return `<span class="chip ltk-on" title="Installed and enabled in LTK Manager">● In LTK · enabled</span>`;
-  if(!x && (S.ltkAdding||[]).includes(m.id)) return `<span class="chip ltk-on" style="opacity:.75"><span class="spin" style="width:9px;height:9px;display:inline-block;vertical-align:-1px;margin-right:4px;border-color:#9ff0c9;border-right-color:transparent"></span>Adding to LTK…</span>`; if(!x) return (S.ltk.found && /\.(fantome|zip)$/i.test(m.filename) && m.champ) ? `<button class="chip" style="cursor:pointer;border-style:dashed" onclick="ltkAdd(['${m.id}'])" title="Install this mod in LTK Manager">＋ Add to LTK</button>` : ''; return x.enabled ? `<span class="chip ltk-on" title="Installed and enabled in LTK Manager">● In LTK · enabled</span>` : `<span class="chip ltk-off" title="Installed in LTK Manager but turned off">○ In LTK · off</span>`; }
+  if(!x && (S.ltkAdding||[]).includes(m.id)) return `<span class="chip ltk-on" style="opacity:.75"><span class="spin" style="width:9px;height:9px;display:inline-block;vertical-align:-1px;margin-right:4px;border-color:#9ff0c9;border-right-color:transparent"></span>Adding to LTK…</span>`; if(!x) return (S.ltk.found && /\.(fantome|zip)$/i.test(m.filename) && m.champ) ? `<button class="chip" style="cursor:pointer;border-style:dashed" onclick="ltkAdd(['${m.id}'])" title="Install this mod in LTK Manager">＋ Add to LTK</button>` : ''; const busy = S.ltkBusy && S.ltkBusy[x.ltk_id];
+  const ctl = busy ? `<span class="chip" style="opacity:.75"><span class="spin" style="width:9px;height:9px;display:inline-block;vertical-align:-1px;margin-right:4px"></span>${busy}…</span>`
+    : `<button class="chip ltk-ctl" title="${x.enabled?'Turn it off in LTK Manager (keeps it installed)':'Turn it back on in LTK Manager'}" onclick="ltkQuick('${x.ltk_id}','${x.enabled?'disable':'enable'}')">${x.enabled?'⏻ Turn off':'⏻ Turn on'}</button><button class="chip ltk-ctl bad" title="Remove it from LTK Manager" onclick="ltkRemoveDlg('${x.ltk_id}')">✕ Remove from LTK</button>`;
+  return (x.enabled ? `<span class="chip ltk-on" title="Installed and enabled in LTK Manager">● In LTK · enabled</span>` : `<span class="chip ltk-off" title="Installed in LTK Manager but turned off">○ In LTK · off</span>`) + ctl; }
+S.ltkBusy = {};
+async function ltkQuick(id, op){
+  const m = (S.ltk.mods||[]).find(x=>x.ltk_id===id);
+  S.ltkBusy[id] = op==='remove' ? 'Removing' : op==='enable' ? 'Turning on' : 'Turning off'; closeModal(); renderMain();
+  try{
+    const r = await api('/api/ltk/apply',{changes:[{id, op}]});
+    if (r.ok){
+      if (op==='remove'){ S.ltk.mods = S.ltk.mods.filter(x=>x.ltk_id!==id); if (m && m.lib_id) delete S.ltkAdded[m.lib_id]; } else if (m) m.enabled = op==='enable';
+      toast(op==='remove' ? `✔ Removed <b>${esc(m?m.name:'mod')}</b> from LTK Manager. A backup is kept in Skin Vault\\data\\ltk_removed.` : `✔ ${op==='enable'?'Turned on':'Turned off'} <b>${esc(m?m.name:'mod')}</b> in LTK Manager`);
+    } else toast('✖ '+esc(r.msg||'LTK Manager refused the change'),'bad');
+  }catch(e){ toast('✖ '+esc(e),'bad'); }
+  delete S.ltkBusy[id]; renderMain(); setTimeout(()=>loadLtk(true), 2500);
+}
+function ltkRemoveDlg(id){
+  const m = (S.ltk.mods||[]).find(x=>x.ltk_id===id); if (!m) return;
+  modal(`<div class="modal-h"><h2>Remove from LTK Manager?</h2><div class="spacer"></div><button class="btn small" onclick="closeModal()">✕</button></div>
+    <div class="modal-b"><p style="margin-top:0"><b>${esc(m.name)}</b> will be removed from LTK Manager, so it won't load in game.</p>
+      <p style="color:var(--muted)">Your mod file in the library stays where it is. You can add it back any time with "Add to LTK". LTK Manager closes for a moment to apply this.</p></div>
+    <div class="modal-f"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn" onclick="ltkQuick('${id}','disable')">Just turn it off</button><button class="btn" style="border-color:var(--err);color:#ffb3b5" onclick="ltkQuick('${id}','remove')">✕ Remove</button></div>`);
+}
 function renderLtk(el){
   const L = S.ltk;
   if (!L.found && !L.loading){ el.innerHTML = `<div class="empty-state"><h2 style="color:var(--gold2)">LTK Manager not found</h2><p>Expected its data in <code>%APPDATA%\\dev.leaguetoolkit.manager</code>. Set the location under ⋯ → Folders &amp; tools.</p></div>`; return; }
@@ -794,7 +830,7 @@ function renderLtk(el){
   const on = all.filter(m=>m.enabled), out = on.filter(m=>m.outdated), conf = on.filter(m=>(m.conflict_with||[]).length);
   const groups = {}; ms.forEach(m=>{ const k = m.champ||'~'; (groups[k]=groups[k]||[]).push(m); });
   const keys = Object.keys(groups).sort((a,b)=>(S.champs[a]?.name||'zzz').localeCompare(S.champs[b]?.name||'zzz'));
-  el.innerHTML = `<div class="hero" style="height:130px"><div class="hero-in"><div><h1>LTK Manager</h1><div class="sub">What's installed for the game · profile “${esc(L.profile||'')}”${L.loading?' · reading…':''}</div></div>
+  setHTML(el, `<div class="hero" style="height:130px"><div class="hero-in"><div><h1>LTK Manager</h1><div class="sub">What's installed for the game · profile “${esc(L.profile||'')}”${L.loading?' · reading…':''}</div></div>
     <div class="meta" style="margin-left:auto;display:flex;gap:8px"><button class="btn small" onclick="loadLtk(true)">↻ Refresh</button></div></div></div>
     <div class="content">
     <div class="cards" style="margin:0 0 16px">
@@ -807,8 +843,8 @@ function renderLtk(el){
     <div class="toolbar"><div class="seg" style="width:360px">${['enabled','all','problems'].map(k=>`<button class="${f===k?'on':''}" onclick="S.ltkFilter='${k}';renderMain()">${{enabled:'Enabled',all:'All installed',problems:'Problems'}[k]}</button>`).join('')}</div>
       ${out.length?`<button class="btn small gold" onclick="fixMany(${JSON.stringify(out.map(m=>m.id)).replace(/"/g,'&quot;')})">🛠 Fix ${out.length} outdated &amp; swap into LTK</button>`:''}</div>
     ${keys.length?'':'<div class="empty-state">Nothing here.</div>'}
-    ${keys.map(k=>{ const c=S.champs[k]; return `<div class="sec-label" style="padding:14px 0 6px">${esc(c?c.name:'No champion detected')} · ${groups[k].length}</div>` + groups[k].sort((a,b)=>(a.applies_to??999)-(b.applies_to??999)).map(m=>ltkRow(m,c)).join(''); }).join('')}
-    </div>`;
+    ${keys.map(k=>{ const c=S.champs[k]; return `<div class="sec-label" data-l="${esc(c?c.name:'~')}" style="padding:14px 0 6px">${esc(c?c.name:'No champion detected')} · ${groups[k].length}</div>` + groups[k].sort((a,b)=>(a.applies_to??999)-(b.applies_to??999)).map(m=>ltkRow(m,c)).join(''); }).join('')}
+    </div>`);
 }
 S.ltkPending = {};
 function ltkToggle(id, cur){ const p = S.ltkPending[id]; if (p==='remove') return; const now = p ? !(p==='enable') : !cur; if (now===cur) delete S.ltkPending[id]; else S.ltkPending[id] = now?'enable':'disable'; renderMain(); }
@@ -1107,6 +1143,34 @@ async function uploadFiles(files){
 }
 async function waitScan(){ for(let i=0;i<60;i++){ const s=await api('/api/status'); if(s.status==='idle') return; await new Promise(r=>setTimeout(r,500)); } }
 
+// ---------- type a letter to jump (LTK page: champion sections; elsewhere: the champion list)
+const _jump = {k:'', i:0, t:0};
+document.addEventListener('keydown', e=>{
+  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || !/^[a-z]$/i.test(e.key)) return;
+  const t = e.target; if (t && (t.tagName==='INPUT' || t.tagName==='TEXTAREA' || t.tagName==='SELECT' || t.isContentEditable)) return;
+  if (document.getElementById('modalBg').classList.contains('show') || document.getElementById('v3dBg').classList.contains('show') || document.getElementById('cmpBg').classList.contains('show')) return;
+  const L = e.key.toUpperCase();
+  const onLtk = S.sel==='__ltk';
+  const box = onLtk ? document.getElementById('main') : document.getElementById('champList');
+  const items = onLtk ? [...box.querySelectorAll('.sec-label[data-l]')] : [...box.querySelectorAll('.crow')].filter(r=>r.querySelector('img'));
+  const nameOf = el => (onLtk ? el.dataset.l : (el.querySelector('.nm')||{}).textContent || '').trim().toUpperCase();
+  let hits = items.filter(el=>nameOf(el).startsWith(L));
+  if (!hits.length) hits = items.filter(el=>nameOf(el) > L).slice(0,1);   // nothing with that letter: next one after it
+  if (!hits.length) return;
+  e.preventDefault();
+  const same = _jump.k===L && Date.now()-_jump.t < 4000; _jump.i = same ? (_jump.i+1) % hits.length : 0; _jump.k = L; _jump.t = Date.now();
+  const el = hits[_jump.i];
+  const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - (onLtk ? 8 : 4);
+  box.scrollTo({top, behavior:'smooth'});
+  el.classList.remove('jumped'); void el.offsetWidth; el.classList.add('jumped');
+  showJumpLetter(L);
+});
+function showJumpLetter(L){
+  let b = document.getElementById('jumpLetter');
+  if (!b){ b = document.createElement('div'); b.id = 'jumpLetter'; document.body.appendChild(b); }
+  b.textContent = L; b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+}
+
 // ---------- live status
 let fastUntil = 0;
 function fastPoll(){ fastUntil = Date.now() + 30000; clearTimeout(window._pollT); poll(); }
@@ -1143,7 +1207,7 @@ async function poll(){
       if (okAdds.length) toast(okAdds.length===1 ? `✔ Added to LTK: <b>${esc(okAdds[0].file)}</b>` : `✔ Added ${okAdds.length} mods to LTK`);
       badAdds.forEach(e=>toast(`✖ <b>${esc(e.file)}</b><br>${esc(e.msg)}`,'bad'));
       if (adds.length) renderMain();
-      if (s.events.some(e=>e.ltk_changed || e.origin==='ltk-add')) loadLtk(true);
+      if (s.events.some(e=>e.origin==='ltk-add')) loadLtk(true); else if (s.events.some(e=>e.ltk_changed)) loadLtk();
       s.events.filter(e=>e.origin==='update').forEach(e=>{ if (e.ok) waitRestart(); else { closeModal(); toast('✖ Update failed: ' + esc(e.msg||''),'bad'); } });
       s.events.filter(e=>e.origin!=='browser' && !e.ltk_changed && !['ltk-add','ltk-stage','convert','update'].includes(e.origin)).forEach(e=>{ if(!document.hidden) showResult(e); });
     }

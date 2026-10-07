@@ -212,6 +212,25 @@ def quick_moves_undo():
     os.remove(a); os.remove(b)
 
 @test
+def ignores_own_app_files():
+    """A copy of Skin Vault (its download zip or an extracted folder) inside the mod folder is never listed as a mod."""
+    z = os.path.join(LIB, "skin-vault-1.0.0.zip")
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in ("skin_manager.py", "lol3d.py", "index.html", "fixer.py"):
+            zf.writestr("skin-vault-1.0.0/" + f, "x")
+    d = os.path.join(LIB, "old copy of skin vault")
+    os.makedirs(d, exist_ok=True)
+    for f in ("skin_manager.py", "lol3d.py", "index.html"):
+        open(os.path.join(d, f), "w").write("x")
+    scan()
+    rels = [m["rel"] for m in sm.STATE["mods"].values()]
+    assert not any("skin-vault-1.0.0" in r or "old copy of skin vault" in r for r in rels), rels
+    tmp = os.path.join(sm.INCOMING_DIR, "skin-vault-1.0.0.zip"); os.makedirs(sm.INCOMING_DIR, exist_ok=True); shutil.copy2(z, tmp)
+    r = sm.import_path(tmp, "browser")[0]
+    assert not r["ok"] and "Skin Vault itself" in r["msg"] and not os.path.exists(tmp), r
+    os.remove(z); shutil.rmtree(d)
+
+@test
 def import_new_and_duplicate():
     src = os.path.join(TMP, "dl", "Ahri Popstar Test.fantome")
     fixtures.fantome(src, "Ahri Popstar Test", {"assets/characters/ahri/skins/skin05/ahri_skin05.skn": fixtures.skn_bytes(5)})
