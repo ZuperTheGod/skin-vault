@@ -381,7 +381,7 @@ class BinReader:
         raise ValueError(f"unknown bin type {t}")
 
 def bin_type_map(data):
-    """(enclosing class hash, field hash) -> set of type signatures, for every property in a PROP bin.
+    """(enclosing class hash, field hash) -> {type signature: occurrences}, for every property in a PROP bin.
     Values are skipped; only the layout is recorded. Used to spot properties whose type changed in a patch."""
     d = data; p = [0]; types = {}
     def u8():
@@ -393,7 +393,9 @@ def bin_type_map(data):
     def fields(scope, n):
         for _ in range(n):
             name = u32(); t = u8()
-            types.setdefault((scope, name), set()).add(value(t))
+            sig = value(t)
+            ts = types.setdefault((scope, name), {})
+            ts[sig] = ts.get(sig, 0) + 1
     def value(t):
         if t in BinReader.PRIM:
             p[0] += BinReader.PRIM[t]; return str(t)
@@ -444,11 +446,32 @@ def bin_type_map(data):
         p[0] = end
     return types
 
-def bin_type_mismatches(mod_bin, game_bin):
-    """How many properties in the mod's bin use a different type than the current game's copy (e.g. a 2024 mod
-    after Riot turned a string into a file/pointer). The game rejects those - LTK reports them as fatal."""
+_STRUCT = {str(BinReader.POINTER), str(BinReader.EMBED)}
+
+def bin_type_report(mod_bin, game_bin):
+    """Properties in the mod's bin whose type differs from the current game's copy (Riot changed it in a patch).
+    simple:     same value, new type (string -> file, u8 -> u16, embed <-> pointer...). LTK Manager repairs these
+                by itself when the mod is imported.
+    structural: the value moved into a new struct (e.g. textureMult string -> pointer). LTK can't repair these
+                ("unrepairable" / fatal bin/property-type); Skin Vault's Auto-fix can."""
     g = bin_type_map(game_bin); m = bin_type_map(mod_bin)
-    return sum(1 for k, ts in m.items() if k in g and len(g[k]) == 1 and ts - g[k])
+    simple = structural = 0
+    for k, ts in m.items():
+        if k not in g or len(g[k]) != 1:
+            continue
+        gt = next(iter(g[k]))
+        for sig, n in ts.items():
+            if sig == gt:
+                continue
+            if gt in _STRUCT and sig not in _STRUCT:
+                structural += n
+            else:
+                simple += n
+    return {"simple": simple, "structural": structural}
+
+def bin_type_mismatches(mod_bin, game_bin):
+    r = bin_type_report(mod_bin, game_bin)
+    return r["simple"] + r["structural"]
 
 H = {k: fnv1a(k) for k in [
     "skinMeshProperties", "skeleton", "simpleSkin", "texture", "material", "materialOverride", "submesh",

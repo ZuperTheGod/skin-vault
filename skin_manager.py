@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -818,18 +818,23 @@ def check_bin_types(path, rec, col):
         if not gw:
             return
         layer = lol3d.mod_layer(path)
-        bad = 0
+        simple = structural = 0
         for h in hits:
             if h in layer and h in gw.entries:
-                bad += lol3d.bin_type_mismatches(layer[h](), gw.read(h))
+                r = lol3d.bin_type_report(layer[h](), gw.read(h))
+                simple += r["simple"]; structural += r["structural"]
     except Exception as e:
         log("bin type check failed", os.path.basename(path), e)
         return
-    if bad:
+    if structural:
         rec["outdated"] = True
-        rec["bin_type_issues"] = bad
-        rec["issues"].append({"level": "warn", "msg": f"Made for an older game patch: {bad} skin setting(s) changed type since, so the game "
-                              "rejects them (LTK Manager shows a repair badge). Click Auto-fix to update it."})
+        rec["bin_type_issues"] = structural + simple
+        rec["issues"].append({"level": "warn", "msg": f"Made for an older game patch: {structural} skin setting(s) changed structure since. "
+                              "The game rejects them and LTK Manager can't repair it (it shows an 'unrepairable' badge). Click Auto-fix to update it."})
+    elif simple:
+        rec["bin_type_simple"] = simple
+        rec["issues"].append({"level": "info", "msg": f"Uses {simple} skin setting(s) from an older patch. LTK Manager updates these "
+                              "automatically when you add the mod, or Auto-fix can update the file itself."})
 
 def analyze_path(path, context_champ=None):
     """Analyze one mod unit (file or folder). Returns record dict."""
@@ -890,7 +895,7 @@ STATE = {"status": "idle", "progress": 0, "total": 0, "current": "", "last_scan"
          "mods": {}, "folders": {}, "loose": [], "events": [], "scan_seconds": 0}
 LOCK = threading.RLock()
 CACHE_PATH = os.path.join(DATA_DIR, "scan_cache.json")
-SCAN_VERSION = 8
+SCAN_VERSION = 9
 
 def load_cache():
     try:

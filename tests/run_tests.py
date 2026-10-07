@@ -95,6 +95,9 @@ def bin_type_patch_changes():
     old = _prop([(1, 16, s16("a.tex")), (2, 3, b"\x05")])                    # string, u8
     new = _prop([(1, 18, struct.pack("<Q", 7)), (2, 5, b"\x05\x00")])       # file, u16
     assert lol3d.bin_type_mismatches(old, new) == 2 and lol3d.bin_type_mismatches(new, new) == 0
+    assert lol3d.bin_type_report(old, new) == {"simple": 2, "structural": 0}
+    wrapped = _prop([(1, 130, struct.pack("<I", 0x3333) + struct.pack("<IH", 2, 0))])     # string -> pointer struct
+    assert lol3d.bin_type_report(old, wrapped)["structural"] == 1
     game_txt = """entries: map[hash,embed] = {
     "A" = VfxEmitterDefinitionData {
         texture: file = "x.tex"
