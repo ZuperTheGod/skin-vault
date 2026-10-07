@@ -428,7 +428,13 @@ def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path,
         if retyped:
             step(f"Updated {settings} outdated setting(s) in {retyped} bin file(s) to the current patch's types")
 
-        if not report["mapped"] and not report["bins_patched"] and not report.get("bins_retyped"):
+        # ---- 7c. bones: re-attach parts of the model that follow the wrong bones (twisting in game)
+        try:
+            _fix_rig(cw, champ_id, slot, game_wad, report, step)
+        except Exception as e:
+            report["warnings"].append(f"Couldn't check the model's bones: {e}")
+
+        if not report["mapped"] and not report["bins_patched"] and not report.get("bins_retyped") and not report.get("bones_fixed"):
             report["warnings"].append("Nothing needed changing - the mod's files already match what the game loads, "
                                       "or it doesn't contain a model/texture for this skin.")
 
@@ -526,6 +532,75 @@ def retype_bin_text(mod_text, game_text):
         else:
             out.append(line); unhandled.append(f"{scope}.{name}: {mt} -> {gt}")
     return "\n".join(out), changed, unhandled
+
+def _find_in(root, game_path):
+    """A file inside an unpacked WAD folder, by its game path (any case) or by its hash-named file."""
+    if not game_path:
+        return None
+    if isinstance(game_path, int):
+        h = game_path; cand = None
+    else:
+        cand = os.path.join(root, *game_path.lower().split("/"))
+        if os.path.isfile(cand):
+            return cand
+        h = lol3d.path_hash(game_path)
+    hx = f"{h:016x}"
+    for dp, dn, fn in os.walk(root):
+        for f in fn:
+            fl = f.lower()
+            if fl.split(".")[0] == hx:
+                return os.path.join(dp, f)
+            if cand is None:
+                continue
+            full = os.path.join(dp, f)
+            if os.path.relpath(full, root).replace("\\", "/").lower() == game_path.lower():
+                return full
+    return None
+
+def _fix_rig(cw, champ_id, slot, game_wad, report, step):
+    c = champ_id.lower()
+    def mesh_paths(raw):
+        if not raw:
+            return None, None
+        smp, _ = lol3d.find_skin_mesh([lol3d.BinReader(raw)])
+        return (smp.get(lol3d.H["simpleSkin"]), smp.get(lol3d.H["skeleton"])) if smp else (None, None)
+    bin_path = f"data/characters/{c}/skins/skin{slot}.bin"
+    gh = lol3d.path_hash(bin_path)
+    gskn_p, gskl_p = mesh_paths(game_wad.read(gh) if gh in game_wad.entries else None)
+    mb = _find_in(cw, bin_path)
+    skn_p, skl_p = mesh_paths(open(mb, "rb").read()) if mb else (None, None)
+    skn_p = skn_p or gskn_p; skl_p = skl_p or gskl_p
+    skn_f = _find_in(cw, skn_p)
+    if not skn_f or not gskn_p or not gskl_p:
+        return
+    gread = lambda p: game_wad.read(lol3d.path_hash(p)) if lol3d.path_hash(p) in game_wad.entries else None
+    gskn, gskl_raw = gread(gskn_p), gread(gskl_p)
+    if not gskn or not gskl_raw:
+        return
+    skl_f = _find_in(cw, skl_p)
+    skl_raw = open(skl_f, "rb").read() if skl_f else gread(skl_p)
+    try:
+        skl, gskl = lol3d.parse_skl(skl_raw), lol3d.parse_skl(gskl_raw)
+    except ValueError as e:
+        report["warnings"].append(f"Bones not checked: {e}")
+        return
+    skn = open(skn_f, "rb").read()
+    v = lol3d.rig_verdict(skn, skl, gskn, gskl)
+    report["rig_before"] = v
+    if v["verdict"] not in ("twisted", "partly", "offset"):
+        return
+    moved = ""
+    if v["verdict"] == "offset":
+        skn = lol3d._shifted(skn, v["shift"]); moved = "moved the model back onto its skeleton and "
+    new, n = lol3d.repair_rig(skn, skl, gskn, gskl)
+    after = lol3d.rig_verdict(new, skl, gskn, gskl)
+    if after["agreement"] + 0.02 < v.get("agreement", 0) and not moved:
+        report["warnings"].append("Bone repair made things worse - kept the original bones")
+        return
+    open(skn_f, "wb").write(new)
+    report["bones_fixed"] = n; report["rig_after"] = after
+    step(f"Bones: {moved}re-attached {n} vertices to the right bones "
+         f"({round(v.get('agreement', 0) * 100)}% -> {round(after['agreement'] * 100)}% matching the original rig)")
 
 def _extract(zf, dst):
     for i in zf.infolist():

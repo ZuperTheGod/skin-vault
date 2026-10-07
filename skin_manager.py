@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -837,6 +837,32 @@ def check_bin_types(path, rec, col):
         rec["issues"].append({"level": "info", "msg": f"Uses {simple} skin setting(s) from an older patch. LTK Manager updates these "
                               "automatically when you add the mod, or Auto-fix can update the file itself."})
 
+def check_rig(path, rec):
+    """Flag models whose parts follow the wrong bones (twist / stretch in game) or that sit off their skeleton."""
+    champ, skin = rec.get("champ"), rec.get("applies_to")
+    if not champ or skin is None or not any(r.get("model") for r in rec.get("folders") or []):
+        return
+    try:
+        r = lol3d.analyze_bones(champ, int(skin), game_dir(), path)
+    except Exception as e:
+        log("bone check failed", os.path.basename(path), e)
+        return
+    if not r:
+        return
+    rec["rig"] = {k: r.get(k) for k in ("verdict", "overlap", "agreement", "shift", "note")}
+    v = r.get("verdict")
+    wrong = round((1 - (r.get("agreement") or 0)) * 100)
+    if v == "twisted":
+        rec["issues"].append({"level": "warn", "msg": f"Twisted bones: about {wrong}% of the model follows the wrong bones compared with the "
+                              "original, so parts will twist or stretch when it moves in game. Click 🦴 Fix bones."})
+    elif v == "partly":
+        rec["issues"].append({"level": "info", "msg": f"Some parts (about {wrong}%) follow different bones than the original and may look "
+                              "a little off when moving. 🦴 Fix bones can re-attach them."})
+    elif v == "offset":
+        rec["issues"].append({"level": "warn", "msg": "Misaligned: the whole model is shifted away from its skeleton. Click 🦴 Fix bones to line it up."})
+    elif v == "unknown" and "legacy" in (r.get("note") or ""):
+        rec["issues"].append({"level": "info", "msg": "Uses a very old skeleton format - its bones can't be checked."})
+
 def analyze_path(path, context_champ=None):
     """Analyze one mod unit (file or folder). Returns record dict."""
     is_dir = os.path.isdir(path)
@@ -877,6 +903,7 @@ def analyze_path(path, context_champ=None):
         display = re.sub(r"\.(fantome|zip)$", "", os.path.basename(ch["member"]), flags=re.I)
     rec = finalize(col, display, context_champ)
     check_bin_types(path, rec, col)
+    check_rig(path, rec)
     if wrapped:
         rec["wrapped"] = wrapped
         rec["issues"].append({"level": "info", "msg": f"Zip wrapping {os.path.basename(wrapped)} - Organize/Import unwraps it automatically"})
@@ -899,7 +926,7 @@ STATE = {"status": "idle", "progress": 0, "total": 0, "current": "", "last_scan"
          "mods": {}, "folders": {}, "loose": [], "events": [], "scan_seconds": 0}
 LOCK = threading.RLock()
 CACHE_PATH = os.path.join(DATA_DIR, "scan_cache.json")
-SCAN_VERSION = 10
+SCAN_VERSION = 11
 
 def load_cache():
     try:
@@ -2373,7 +2400,7 @@ def state_payload(since=0):
         "ddragon": DD["version"], "hashdb": HDB.loaded, "loose": STATE["loose"], "events": events,
         "champions": list(DD["champs"].values()), "mods": mods, "drop_dir": DROP_DIR,
         "game_dir": game_dir(), "ltmao": bool(ltmao_dir()), "ltk": bool(ltk_dir()),
-        "new_days": CFG.get("new_days", NEW_DAYS), "seen_before": load_added().get("_seen_before", 0),
+        "new_days": CFG.get("new_days", NEW_DAYS), "seen_before": load_added().get("_seen_before", 0), "seen_ids": load_added().get("_seen_ids", []),
         "version": VERSION, "update": update_public(),
     }
 
@@ -2589,8 +2616,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {"queued": len(ids)})
             if u.path == "/api/seen":
                 with _ADDED_LOCK:
-                    d = load_added(); d["_seen_before"] = time.time(); save_added(d)
-                return self.send(200, {"seen_before": d["_seen_before"]})
+                    d = load_added()
+                    if data.get("ids"):          # clear the NEW tag on just these mods
+                        seen = set(d.get("_seen_ids") or []) | set(data["ids"])
+                        d["_seen_ids"] = sorted(seen)[-5000:]
+                    else:
+                        d["_seen_before"] = time.time()
+                    save_added(d)
+                return self.send(200, {"seen_before": d.get("_seen_before", 0), "seen_ids": d.get("_seen_ids", [])})
             if u.path == "/api/delete":
                 return self.send(200, delete_mods(data.get("ids") or [], bool(data.get("remove_ltk"))))
             if u.path == "/api/ltk/open":

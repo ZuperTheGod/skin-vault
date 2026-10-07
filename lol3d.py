@@ -9,7 +9,7 @@ lol3d - read League of Legends game/mod files well enough to show a skin in 3D.
 Mod files are layered on top of the game's own files, exactly like the game does
 when the mod is enabled, so the viewer shows what you'd actually see in game.
 """
-import os, io, re, struct, zlib, gzip, zipfile, base64, threading
+import os, io, re, struct, zlib, gzip, zipfile, base64, threading, math
 
 try:
     import zstandard as _zstd
@@ -541,6 +541,332 @@ def parse_skn(data):
         subs = [{"name": "mesh", "start": 0, "count": icount}]
     return {"positions": bytes(pos), "normals": bytes(nrm), "uvs": bytes(uv), "indices": bytes(idx),
             "vcount": vcount, "submeshes": subs}
+
+# ------------------------------------------------------------------ skeletons (.skl) + mesh skinning checks
+def _qrot(q, v):
+    x, y, z, w = q; vx, vy, vz = v
+    tx = 2 * (y * vz - z * vy); ty = 2 * (z * vx - x * vz); tz = 2 * (x * vy - y * vx)
+    return (vx + w * tx + (y * tz - z * ty), vy + w * ty + (z * tx - x * tz), vz + w * tz + (x * ty - y * tx))
+
+def parse_skl(data):
+    """Modern skeleton (0x22FD4FC3). Returns {"joints": [{id, parent, hash, name, pos}], "influences": [joint ids]}.
+    pos = the joint's bind-pose position in model space. Raises on legacy r3d2sklt skeletons."""
+    size, fmt, ver = struct.unpack_from("<III", data, 0)
+    if fmt != 0x22FD4FC3:
+        if data[:8] == b"r3d2sklt":
+            raise ValueError("legacy skeleton format")
+        raise ValueError("not a skeleton")
+    flags, jc, ic = struct.unpack_from("<HHI", data, 12)
+    jo, jio, io = struct.unpack_from("<3i", data, 20)
+    joints = []
+    for i in range(jc):
+        o = jo + i * 100
+        jf, jid, par, _pad, nh, rad = struct.unpack_from("<HhhHIf", data, o)
+        it = struct.unpack_from("<3f", data, o + 56); isc = struct.unpack_from("<3f", data, o + 68)
+        ir = struct.unpack_from("<4f", data, o + 80)
+        noff = struct.unpack_from("<i", data, o + 96)[0]
+        ns = o + 96 + noff
+        try:
+            name = data[ns:data.index(b"\0", ns)].decode("latin-1")
+        except Exception:
+            name = ""
+        r = _qrot((-ir[0], -ir[1], -ir[2], ir[3]), it)
+        pos = (-r[0] / (isc[0] or 1), -r[1] / (isc[1] or 1), -r[2] / (isc[2] or 1))
+        joints.append({"id": jid, "parent": par, "hash": nh, "name": name, "pos": pos})
+    infl = list(struct.unpack_from(f"<{ic}H", data, io)) if ic else []
+    return {"joints": joints, "influences": infl}
+
+def skn_skinning(data):
+    """Where the per-vertex bone data lives in an SKN: {"start", "stride", "count", "pos_y_range"}."""
+    magic, major, minor = struct.unpack_from("<IHH", data, 0)
+    if magic != 0x00112233:
+        raise ValueError("not an SKN mesh")
+    p = 8; stride = 52
+    if major == 0:
+        ic, vc = struct.unpack_from("<II", data, p); p += 8
+    else:
+        n = struct.unpack_from("<I", data, p)[0]; p += 4 + n * 80
+        if major == 4:
+            p += 4
+        ic, vc = struct.unpack_from("<II", data, p); p += 8
+        if major == 4:
+            stride = struct.unpack_from("<I", data, p)[0]; p += 8 + 40
+    p += 2 * ic
+    return {"start": p, "stride": stride, "count": vc}
+
+def skn_vertices(data, info=None, step=1):
+    info = info or skn_skinning(data)
+    p, st = info["start"], info["stride"]
+    for i in range(0, info["count"], step):
+        o = p + i * st
+        yield i, struct.unpack_from("<3f", data, o), data[o + 12:o + 16], struct.unpack_from("<4f", data, o + 16)
+
+def bind_error(skn, skl, step=7):
+    """How far vertices sit from the bones they're attached to, relative to model height.
+    A correctly rigged League model scores ~0.04-0.11; bones pointing at the wrong joints score 0.2+."""
+    info = skn_skinning(skn)
+    J, inf = skl["joints"], skl["influences"]
+    ys = [v[1][1] for v in skn_vertices(skn, info, max(1, info["count"] // 400))]
+    h = (max(ys) - min(ys)) if ys else 1
+    tot = n = bad = 0
+    for i, pos, b, w in skn_vertices(skn, info, step):
+        best = None
+        for k in range(4):
+            if w[k] > 0.15:
+                if b[k] >= len(inf) or inf[b[k]] >= len(J):
+                    bad += 1; best = None; break
+                dd = math.dist(pos, J[inf[b[k]]]["pos"])
+                best = dd if best is None else min(best, dd)
+        if best is not None:
+            tot += best; n += 1
+    return {"error": tot / max(n, 1) / (h or 1), "bad_refs": bad, "height": h}
+
+def skeleton_diff(mod_skl, game_skl):
+    """Joint-level comparison of a skeleton a mod ships against the game's current one."""
+    g = {j["hash"]: j for j in game_skl["joints"]}
+    m = {j["hash"]: j for j in mod_skl["joints"]}
+    missing = [j["name"] for h, j in g.items() if h not in m]
+    extra = [j["name"] for h, j in m.items() if h not in g]
+    moved = 0
+    for h, j in m.items():
+        if h in g and math.dist(j["pos"], g[h]["pos"]) > 2.0:
+            moved += 1
+    same_order = [j["hash"] for j in mod_skl["joints"]] == [j["hash"] for j in game_skl["joints"]]
+    same_infl = [mod_skl["joints"][i]["hash"] for i in mod_skl["influences"] if i < len(mod_skl["joints"])] == \
+                [game_skl["joints"][i]["hash"] for i in game_skl["influences"] if i < len(game_skl["joints"])]
+    return {"missing": missing, "extra": extra, "moved": moved, "same_order": same_order, "same_influences": same_infl,
+            "identical": not missing and not extra and not moved and same_order and same_infl}
+
+def _top_joint(b, w, skl):
+    k = max(range(4), key=lambda i: w[i])
+    inf = skl["influences"]
+    if b[k] >= len(inf) or inf[b[k]] >= len(skl["joints"]):
+        return None
+    return skl["joints"][inf[b[k]]]["hash"]
+
+def _grid(points, cell):
+    g = {}
+    for idx, (x, y, z) in enumerate(points):
+        g.setdefault((int(x // cell), int(y // cell), int(z // cell)), []).append(idx)
+    return g
+
+def _nearest(g, points, p, cell, maxd):
+    cx, cy, cz = int(p[0] // cell), int(p[1] // cell), int(p[2] // cell)
+    best, bd = None, maxd
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                for idx in g.get((cx + dx, cy + dy, cz + dz), ()):
+                    d = math.dist(points[idx], p)
+                    if d < bd:
+                        best, bd = idx, d
+    return best
+
+def _neighbors(skl):
+    """joint hash -> {itself, parent, children} (by hash) - small rig differences between neighbours are fine."""
+    by_id = {j["id"]: j for j in skl["joints"]}
+    nb = {j["hash"]: {j["hash"]} for j in skl["joints"]}
+    for j in skl["joints"]:
+        p = by_id.get(j["parent"])
+        if p:
+            nb[j["hash"]].add(p["hash"]); nb[p["hash"]].add(j["hash"])
+    return nb
+
+def _rig_points(skn, skl):
+    pts, top = [], []
+    for i, pos, b, w in skn_vertices(skn):
+        pts.append(pos); top.append(_top_joint(b, w, skl))
+    return pts, top
+
+def compare_rig(mod_skn, mod_skl, game_skn, game_skl, step=4):
+    """Compare a mod's mesh with the original game mesh for the same skin.
+    overlap:   share of the mod's vertices sitting where an original vertex is (edits ~0.3-1.0, new models ~0)
+    agreement: of those, how many follow the same (or a neighbouring) main bone as the original. Vertices that
+               follow a bone the game skeleton doesn't have (the mod's own extra bones) aren't judged.
+               Correct edits ~0.85-1.0; scrambled / wrong bone order ~0.0-0.5."""
+    gpts, gtop = _rig_points(game_skn, game_skl)
+    ys = [p[1] for p in gpts]; h = (max(ys) - min(ys)) or 1
+    cell = h * 0.01; maxd = h * 0.004
+    g = _grid(gpts, cell)
+    nb = _neighbors(game_skl); known = set(nb)
+    near = judged = same = n = 0
+    for i, pos, b, w in skn_vertices(mod_skn, None, step):
+        n += 1
+        j = _nearest(g, gpts, pos, cell, maxd)
+        if j is None:
+            continue
+        near += 1
+        mj = _top_joint(b, w, mod_skl)
+        if mj is None or mj not in known or gtop[j] is None:
+            continue
+        judged += 1
+        if mj in nb.get(gtop[j], ()):
+            same += 1
+    return {"overlap": near / max(n, 1), "agreement": same / max(judged, 1), "checked": n, "judged": judged}
+
+def repair_rig(mod_skn, mod_skl, game_skn, game_skl, max_dist=0.03):
+    """Re-attach vertices that follow the wrong bones: copy bones + weights from the nearest vertex of the original
+    game mesh (within max_dist x model height), translated into the mod skeleton's bone list. Vertices on the
+    mod's own extra bones, or far from any original vertex (new parts), are left alone.
+    Returns (new_skn_bytes, vertices_changed)."""
+    info = skn_skinning(mod_skn)
+    gi = skn_skinning(game_skn)
+    gpts, gbones = [], []
+    for i, pos, b, w in skn_vertices(game_skn, gi):
+        gpts.append(pos); gbones.append((b, w))
+    ys = [p[1] for p in gpts]; h = (max(ys) - min(ys)) or 1
+    cell = h * 0.02; maxd = h * max_dist
+    g = _grid(gpts, cell)
+    nb = _neighbors(game_skl); known = set(nb)
+    gj = game_skl["joints"]; ginf = game_skl["influences"]
+    # mod skeleton: joint hash -> index in its influence list (what the SKN's bone bytes point at)
+    mj = mod_skl["joints"]; minf = mod_skl["influences"]
+    infl_of = {mj[ji]["hash"]: k for k, ji in enumerate(minf) if ji < len(mj)}
+    parent_of = {}
+    by_id = {j["id"]: j for j in mj}
+    for j in mj:
+        p = by_id.get(j["parent"]); parent_of[j["hash"]] = p["hash"] if p else None
+    gparent = {}
+    gby = {j["id"]: j for j in gj}
+    for j in gj:
+        p = gby.get(j["parent"]); gparent[j["hash"]] = p["hash"] if p else None
+    def to_mod_index(jh):
+        seen = 0
+        while jh is not None and seen < 64:
+            if jh in infl_of:
+                return infl_of[jh]
+            jh = gparent.get(jh) or parent_of.get(jh); seen += 1
+        return None
+    out = bytearray(mod_skn); changed = 0
+    for i, pos, b, w in skn_vertices(mod_skn, info):
+        cur = _top_joint(b, w, mod_skl)
+        if cur is not None and cur not in known:
+            continue                      # the mod's own extra bone - leave it
+        j = _nearest(g, gpts, pos, cell, maxd)
+        if j is None:
+            continue
+        gb, gw_ = gbones[j]
+        gk = max(range(4), key=lambda k: gw_[k])
+        if gb[gk] >= len(ginf):
+            continue
+        gtop = gj[ginf[gb[gk]]]["hash"]
+        if cur is not None and cur in nb.get(gtop, ()):
+            continue                      # already follows the right bone
+        nbones, nweights = [0, 0, 0, 0], [0.0, 0.0, 0.0, 0.0]
+        ok = True
+        for k in range(4):
+            if gw_[k] <= 0:
+                continue
+            if gb[k] >= len(ginf):
+                ok = False; break
+            idx = to_mod_index(gj[ginf[gb[k]]]["hash"])
+            if idx is None or idx > 255:
+                ok = False; break
+            nbones[k] = idx; nweights[k] = gw_[k]
+        if not ok:
+            continue
+        tot = sum(nweights) or 1
+        o = info["start"] + i * info["stride"]
+        out[o + 12:o + 16] = bytes(nbones)
+        struct.pack_into("<4f", out, o + 16, *[x / tot for x in nweights])
+        changed += 1
+    return bytes(out), changed
+
+def _bbox(skn):
+    xs = []; 
+    for i, pos, b, w in skn_vertices(skn, None, 3):
+        xs.append(pos)
+    lo = [min(p[k] for p in xs) for k in range(3)]; hi = [max(p[k] for p in xs) for k in range(3)]
+    return lo, hi
+
+def _shifted(skn, d):
+    out = bytearray(skn); info = skn_skinning(skn)
+    for i in range(info["count"]):
+        o = info["start"] + i * info["stride"]
+        x, y, z = struct.unpack_from("<3f", out, o)
+        struct.pack_into("<3f", out, o, x + d[0], y + d[1], z + d[2])
+    return bytes(out)
+
+def analyze_bones(champ_id, skin_num, game_dir, mod_path):
+    """Check a mod's model against the original model + skeleton for that skin.
+    Returns None when the mod doesn't replace the model, else a dict with numbers and a verdict:
+      ok          - follows the same bones as the original (or a brand-new model that can't be compared)
+      twisted     - an edit of the original, but its vertices follow the wrong bones -> twists/stretches in game
+      partly      - some areas follow the wrong bones
+      offset      - the whole model is shifted away from the skeleton ("misaligned")
+      broken      - vertices point at bones that don't exist in the skeleton
+      unknown     - couldn't be read"""
+    c = champ_id.lower()
+    gw = game_wad(game_dir, champ_id)
+    if not gw:
+        return None
+    layers = Layers()
+    layers.add_files(mod_layer(mod_path), "mod")
+    layers.add_wad(gw, "game")
+    def mesh_paths(getter):
+        raw = getter(f"data/characters/{c}/skins/skin{skin_num}.bin")
+        if not raw:
+            return None, None
+        try:
+            smp, _ = find_skin_mesh([BinReader(raw)])
+        except Exception:
+            return None, None
+        return (smp.get(H["simpleSkin"]), smp.get(H["skeleton"])) if smp else (None, None)
+    gread = lambda k: gw.read(path_hash(k)) if path_hash(k) in gw.entries else None
+    gskn_p, gskl_p = mesh_paths(gread)
+    skn_p, skl_p = mesh_paths(layers.get)
+    skn_p = skn_p or gskn_p; skl_p = skl_p or gskl_p
+    if not skn_p or not skl_p or layers.source_of(skn_p) != "mod":
+        return None
+    out = {"mesh": skn_p, "skeleton": skl_p, "skeleton_from": layers.source_of(skl_p)}
+    try:
+        skl = parse_skl(layers.get(skl_p))
+        skn = layers.get(skn_p)
+        be = bind_error(skn, skl)
+    except Exception as e:
+        out.update(verdict="unknown", note=str(e)[:120]); return out
+    out["error"] = round(be["error"], 3); out["bad_refs"] = be["bad_refs"]
+    if be["bad_refs"] > 20:
+        out["verdict"] = "broken"; return out
+    try:
+        gskn = gread(gskn_p) if gskn_p else None
+        gskl = parse_skl(gread(gskl_p)) if gskl_p and gread(gskl_p) else None
+    except Exception:
+        gskn = gskl = None
+    if not gskn or not gskl:
+        out["verdict"] = "ok"; out["note"] = "no original model to compare with"; return out
+    out.update(rig_verdict(skn, skl, gskn, gskl))
+    return out
+
+def rig_verdict(skn, skl, gskn, gskl):
+    """ok | twisted | partly | offset (+ numbers) for a mod mesh vs the original mesh of the same skin."""
+    cmp_ = compare_rig(skn, skl, gskn, gskl)
+    out = {"overlap": round(cmp_["overlap"], 2), "agreement": round(cmp_["agreement"], 2)}
+    if cmp_["overlap"] < 0.25:
+        try:
+            (ml, mh), (gl, gh) = _bbox(skn), _bbox(gskn)
+            msz = [mh[k] - ml[k] for k in range(3)]; gsz = [gh[k] - gl[k] for k in range(3)]
+            height = gsz[1] or 1
+            if all(abs(msz[k] - gsz[k]) <= 0.15 * max(gsz[k], 1) for k in range(3)):
+                d = [((gl[k] + gh[k]) - (ml[k] + mh[k])) / 2 for k in range(3)]
+                if max(abs(x) for x in d) > 0.03 * height:
+                    c2 = compare_rig(_shifted(skn, d), skl, gskn, gskl)
+                    if c2["overlap"] >= 0.5:
+                        out.update(verdict="offset", shift=[round(x, 3) for x in d], overlap_after=round(c2["overlap"], 2))
+                        return out
+        except Exception:
+            pass
+        out["verdict"] = "ok"; out["note"] = "a new model (not an edit of the original) - its rig can't be compared"
+        return out
+    if cmp_["judged"] < 50:
+        out["verdict"] = "ok"
+    elif cmp_["agreement"] < 0.6:
+        out["verdict"] = "twisted"
+    elif cmp_["agreement"] < 0.8:
+        out["verdict"] = "partly"
+    else:
+        out["verdict"] = "ok"
+    return out
 
 # ------------------------------------------------------------------ textures
 def tex_to_dds(data):

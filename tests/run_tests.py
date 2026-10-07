@@ -136,6 +136,59 @@ def bin_type_patch_changes():
         assert want in out, want
     assert sm.fixer.retype_bin_text(out, game_txt)[1] == 0, "second pass should change nothing"
 
+def _skl(joints):
+    """joints: [(name_hash, parent, (x,y,z))] -> modern SKL bytes (identity rotations)."""
+    jc = len(joints); jo = 64; io = jo + 100 * jc; no = io + 2 * jc
+    names = b"".join(f"j{i}".encode() + b"\0" for i in range(jc))
+    out = bytearray(no + len(names))
+    struct.pack_into("<IIIHHI6i", out, 0, len(out), 0x22FD4FC3, 0, 0, jc, jc, jo, io, io, no, no, no)
+    npos = no
+    for i, (h, par, (x, y, z)) in enumerate(joints):
+        o = jo + 100 * i
+        struct.pack_into("<HhhHIf", out, o, 0, i, par, 0, h, 1.0)
+        struct.pack_into("<3f3f4f", out, o + 16, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1)
+        struct.pack_into("<3f3f4f", out, o + 56, -x, -y, -z, 1, 1, 1, 0, 0, 0, 1)
+        struct.pack_into("<i", out, o + 96, npos - (o + 96)); npos += len(f"j{i}") + 1
+    struct.pack_into(f"<{jc}H", out, io, *range(jc))
+    out[no:] = names
+    return bytes(out)
+
+def _skn(verts):
+    """verts: [((x,y,z), bone)] -> SKN v4.1 with one submesh."""
+    vc = len(verts); ic = 3 * (vc // 3)
+    out = struct.pack("<IHH", 0x00112233, 4, 1) + struct.pack("<I", 1) + b"Body".ljust(64, b"\0") + struct.pack("<4I", 0, vc, 0, ic)
+    out += struct.pack("<I", 0) + struct.pack("<II", ic, vc) + struct.pack("<II", 52, 0) + b"\0" * 40
+    out += struct.pack(f"<{ic}H", *range(ic))
+    for (x, y, z), b in verts:
+        out += struct.pack("<3f", x, y, z) + bytes([b, 0, 0, 0]) + struct.pack("<4f", 1, 0, 0, 0) + struct.pack("<3f", 0, 0, 1) + struct.pack("<2f", 0, 0)
+    return out
+
+@test
+def twisted_bones_detect_and_repair():
+    """A mod whose model follows the wrong bones is detected and re-attached using the original model."""
+    import random
+    rnd = random.Random(3)
+    J = [(101, -1, (0, 0, 0)), (202, 0, (0, 150, 0)), (303, 0, (60, 60, 0)), (404, 0, (-60, 60, 0))]
+    skl = lol3d.parse_skl(_skl(J))
+    assert [j["pos"] for j in skl["joints"]] == [(0, 0, 0), (0, 150, 0), (60, 60, 0), (-60, 60, 0)]
+    pts = [((J[b][2][0] + rnd.uniform(-4, 4), J[b][2][1] + rnd.uniform(-4, 4), J[b][2][2] + rnd.uniform(-4, 4)), b) for b in range(4) for _ in range(120)]
+    game = _skn(pts)
+    swap = {1: 3, 3: 1}                                   # head <-> one arm: siblings, so it really twists
+    mod = _skn([(p, swap.get(b, b)) for p, b in pts])
+    assert lol3d.rig_verdict(game, skl, game, skl)["verdict"] == "ok"
+    v = lol3d.rig_verdict(mod, skl, game, skl)
+    assert v["verdict"] == "twisted" and v["agreement"] < 0.6, v
+    fixed, n = lol3d.repair_rig(mod, skl, game, skl)
+    assert n == 240, n
+    assert lol3d.rig_verdict(fixed, skl, game, skl)["agreement"] == 1.0
+    assert lol3d.repair_rig(game, skl, game, skl)[1] == 0, "a correct model must not be touched"
+    # a brand-new model (nothing in common with the original) is not judged
+    other = _skn([((p[0] + 500, p[1] + 900, p[2]), 1) for p, b in pts[:200]])
+    assert lol3d.rig_verdict(other, skl, game, skl)["verdict"] == "ok"
+    # shifted model is recognised as misaligned
+    shifted = _skn([((p[0] + 30, p[1] + 25, p[2]), b) for p, b in pts])
+    assert lol3d.rig_verdict(shifted, skl, game, skl)["verdict"] == "offset"
+
 @test
 def skn_parse():
     m = lol3d.parse_skn(fixtures.skn_bytes())
