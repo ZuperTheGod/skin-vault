@@ -436,13 +436,18 @@ def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path,
             report["warnings"].append(f"Couldn't check the model's bones: {e}")
 
         try:
+            _fix_part_names(cw, champ_id, slot, game_wad, report, step)
+        except Exception as e:
+            report["warnings"].append(f"Couldn't check the part names: {e}")
+
+        try:
             if fix_masks:          # experimental: only when asked for in the Fix dialog
                 _fix_masks(cw, champ_id, slot, game_wad, report, step)
         except Exception as e:
             report["warnings"].append(f"Couldn't check the animation masks: {e}")
 
         if not report["mapped"] and not report["bins_patched"] and not report.get("bins_retyped") and not report.get("bones_fixed") \
-                and not report.get("masks_fixed"):
+                and not report.get("masks_fixed") and not report.get("names_fixed"):
             report["warnings"].append("Nothing needed changing - the mod's files already match what the game loads, "
                                       "or it doesn't contain a model/texture for this skin.")
 
@@ -609,6 +614,31 @@ def _fix_rig(cw, champ_id, slot, game_wad, report, step):
     report["bones_fixed"] = n; report["rig_after"] = after
     step(f"Bones: {moved}re-attached {n} vertices to the right bones "
          f"({round(v.get('agreement', 0) * 100)}% -> {round(after['agreement'] * 100)}% matching the original rig)")
+
+def _fix_part_names(cw, champ_id, slot, game_wad, report, step):
+    """Rename model parts whose names differ from the game's only in upper/lower case (the game matches exactly)."""
+    c = champ_id.lower()
+    bin_path = f"data/characters/{c}/skins/skin{slot}.bin"
+    gh = lol3d.path_hash(bin_path)
+    gb = game_wad.read(gh) if gh in game_wad.entries else None
+    mb = _find_in(cw, bin_path)
+    raw = open(mb, "rb").read() if mb else gb
+    if not raw or not gb:
+        return
+    smp, _ = lol3d.find_skin_mesh([lol3d.BinReader(raw)])
+    gsmp, _ = lol3d.find_skin_mesh([lol3d.BinReader(gb)])
+    skn_p = (smp or {}).get(lol3d.H["simpleSkin"]); gskn_p = (gsmp or {}).get(lol3d.H["simpleSkin"])
+    skn_f = _find_in(cw, skn_p)
+    if not skn_f or not gskn_p or lol3d.path_hash(gskn_p) not in game_wad.entries:
+        return
+    skn = open(skn_f, "rb").read()
+    fx = lol3d.part_name_fixes(skn, game_wad.read(lol3d.path_hash(gskn_p)))
+    if not fx:
+        return
+    with open(skn_f, "wb") as f:
+        f.write(lol3d.rename_parts(skn, fx))
+    report["names_fixed"] = fx
+    step("Renamed model parts to match the game: " + ", ".join(f"{a} -> {b}" for a, b in fx.items()))
 
 def _fix_masks(cw, champ_id, slot, game_wad, report, step):
     """Mod ships its own skeleton -> make the animation graph's per-joint masks follow that skeleton's joint order."""

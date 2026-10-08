@@ -268,6 +268,18 @@ def animation_masks_follow_mod_skeleton():
     assert lol3d.mask_check(mod, game, new) is None
 
 @test
+def part_names_match_game_case():
+    """Model parts named 'body' when the game says 'Body' are found and renamed (the game matches names exactly)."""
+    pts = [((0, i, 0), 0) for i in range(6)]
+    game = _skn(pts)
+    mod = game.replace(b"Body".ljust(64, b"\0"), b"body".ljust(64, b"\0"), 1)
+    assert lol3d.part_name_fixes(game, game) == {}
+    fx = lol3d.part_name_fixes(mod, game)
+    assert fx == {"body": "Body"}, fx
+    fixed = lol3d.rename_parts(mod, fx)
+    assert fixed == game and lol3d.parse_skn(fixed)["submeshes"][0]["name"] == "Body"
+
+@test
 def skn_parse():
     m = lol3d.parse_skn(fixtures.skn_bytes())
     assert m["vcount"] == 3 and m["submeshes"][0]["name"] == "Body"

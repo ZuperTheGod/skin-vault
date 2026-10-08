@@ -827,6 +827,11 @@ def analyze_bones(champ_id, skin_num, game_dir, mod_path):
         return {"verdict": "ok", "masks": masks, "skeleton": skl_p, "skeleton_from": "mod"} if masks else None
     out = {"mesh": skn_p, "skeleton": skl_p, "skeleton_from": layers.source_of(skl_p), "masks": masks}
     try:
+        gsk = gread(gskn_p) if gskn_p else None
+        out["names"] = part_name_fixes(layers.get(skn_p), gsk) if gsk else {}
+    except Exception:
+        out["names"] = {}
+    try:
         skl = parse_skl(layers.get(skl_p))
         skn = layers.get(skn_p)
         be = bind_error(skn, skl)
@@ -1060,7 +1065,7 @@ def build_model(champ_id, skin_num, game_dir=None, mod_path=None):
         for k in ("initialSubmeshToHide", "initialSubmeshAvatarToHide"):
             v = smp.get(H[k])
             if isinstance(v, str):
-                hide |= {x.lower() for x in re.split(r"[ ,;]+", v) if x}
+                hide |= {x for x in re.split(r"[ ,;]+", v) if x}     # exact match, like the game
     overrides = {}
     for o in (smp.get(H["materialOverride"]) or []) if smp else []:
         if not isinstance(o, dict):
@@ -1069,7 +1074,7 @@ def build_model(champ_id, skin_num, game_dir=None, mod_path=None):
         if not t and o.get(H["material"]):
             t = material_texture(bins, o[H["material"]])
         if sm and t:
-            overrides[sm.lower()] = t
+            overrides[sm] = t
     scale = smp.get(H["skinScale"]) if smp else None
 
     skn = layers.get(skn_path) if skn_path else None
@@ -1103,11 +1108,11 @@ def build_model(champ_id, skin_num, game_dir=None, mod_path=None):
             notes.append("Main texture couldn't be decoded")
         used_mod = used_mod or default_src == "mod"
         for sm in mesh["submeshes"]:
-            ov = overrides.get(sm["name"].lower())
+            ov = overrides.get(sm["name"])
             k, src = tex_key(ov) if ov else (default_key, default_src)
             used_mod = used_mod or src == "mod"
             subs.append({"name": sm["name"], "start": sm["start"], "count": sm["count"], "tex": k,
-                         "hidden": sm["name"].lower() in hide})
+                         "hidden": sm["name"] in hide})
     mesh_src = layers.source_of(skn_path) if skn_path else None
 
     # The mod's files aren't what the current game loads -> preview the mod's own mesh/textures.
@@ -1150,7 +1155,7 @@ def build_model(champ_id, skin_num, game_dir=None, mod_path=None):
                     if dds:
                         k = f"{h2:016x}"; textures[k] = dds
                 subs.append({"name": sm["name"], "start": sm["start"], "count": sm["count"], "tex": k,
-                             "hidden": sm["name"].lower() in hide})
+                             "hidden": sm["name"] in hide})
             notes.append("This mod's files use older file paths than the current game loads, so in game it will most likely "
                          "not show up (outdated mod). Showing the mod's own model here.")
         elif mesh and texs:
@@ -1177,6 +1182,15 @@ def build_model(champ_id, skin_num, game_dir=None, mod_path=None):
     if mesh is None:
         raise RuntimeError("Couldn't find a 3D mesh for this skin")
 
+    if skn and gw and mesh_src == "mod" and isinstance(skn_path, str) and path_hash(skn_path) in gw.entries:
+        try:
+            fx = part_name_fixes(skn, gw.read(path_hash(skn_path)))
+            if fx:
+                notes.append("Some part names don't match the game's exactly (" + ", ".join(f"{a} → {b}" for a, b in fx.items()) +
+                             "), so in game those parts may show when they should be hidden or get the wrong texture - "
+                             "this view shows it the way the game will. 🛠 Auto-fix renames them.")
+        except Exception:
+            pass
     skin, anim = _model_skin(layers, bins, smp, skn, skn_path, mod_mesh_fallback, champ_id, skin_num, notes)
     sources = {"mesh": mesh_src, "skin_data": bin_src,
                "texture": "mod" if any(t and layers.source_of(int(t, 16)) == "mod" for t in [x["tex"] for x in subs]) or
@@ -1728,3 +1742,32 @@ def skin_mask_check(layers, gread, champ_id, skin_num, skl_p, gskl_p):
     if r:
         r["graph"] = ap; r["graph_from"] = layers.source_of(ap)
     return r
+
+
+# ------------------------------------------------------------------ part (submesh) names vs. the game
+def skn_names(data):
+    """[(name, offset of its 64-byte name field)] for an SKN's submeshes."""
+    magic, major, minor = struct.unpack_from("<IHH", data, 0)
+    if magic != 0x00112233 or major == 0:
+        return []
+    n = struct.unpack_from("<I", data, 8)[0]; out = []
+    for i in range(n):
+        o = 12 + i * 80
+        out.append((data[o:o + 64].split(b"\0")[0].decode("latin-1"), o))
+    return out
+
+def part_name_fixes(mod_skn, game_skn):
+    """{mod name: game name} for parts whose name only differs in upper/lower case. The game matches part names
+    exactly (which parts start hidden, which get their own texture), so 'head' isn't hidden when the game says 'Head'."""
+    want = {}
+    for n, _ in skn_names(game_skn):
+        want.setdefault(n.lower(), n)
+    exact = {n for n, _ in skn_names(game_skn)}
+    return {n: want[n.lower()] for n, _ in skn_names(mod_skn) if n not in exact and n.lower() in want}
+
+def rename_parts(skn, fixes):
+    d = bytearray(skn)
+    for n, o in skn_names(skn):
+        if n in fixes:
+            d[o:o + 64] = fixes[n].encode("latin-1")[:63].ljust(64, b"\0")
+    return bytes(d)

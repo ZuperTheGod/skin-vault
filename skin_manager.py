@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.0.9"
+VERSION = "1.1.0"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -850,6 +850,10 @@ def check_rig(path, rec):
     if not r:
         return
     rec["rig"] = {k: r.get(k) for k in ("verdict", "overlap", "agreement", "shift", "note", "masks")}
+    if r.get("names"):
+        rec["issues"].append({"level": "warn", "msg": "Part names don't match the game's (" + ", ".join(f"{a} → {b}" for a, b in r["names"].items()) +
+                              "). The game matches them exactly, so in game some parts show up when they should be hidden or get the "
+                              "wrong texture. Click 🛠 Auto-fix to rename them."})
     v = r.get("verdict")
     wrong = round((1 - (r.get("agreement") or 0)) * 100)
     if v == "twisted":
@@ -926,7 +930,7 @@ STATE = {"status": "idle", "progress": 0, "total": 0, "current": "", "last_scan"
          "mods": {}, "folders": {}, "loose": [], "events": [], "scan_seconds": 0}
 LOCK = threading.RLock()
 CACHE_PATH = os.path.join(DATA_DIR, "scan_cache.json")
-SCAN_VERSION = 13
+SCAN_VERSION = 14
 
 def load_cache():
     try:

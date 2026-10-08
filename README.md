@@ -23,7 +23,7 @@ A 4-minute walkthrough for complete beginners: what skin mods are, how to instal
 - **Issue checks.** Corrupt archives, `.rar` files, mods built for an old patch ("outdated"), mods in the wrong folder, extracted copies, voice-only WADs and more.
 - **Real 3D preview** of the mod next to the original skin, plus **3D compare** for up to three models side by side.
 - **Animation playback.** The 3D viewer plays the skin's real in-game animations (idle, run, attacks, spells, dance, recall…), so twisted bones and stretched parts show up before you load into a game.
-- **Bone checks & fixes.** Finds models that follow the wrong bones or sit off their skeleton, and **🦴 Fix bones** repairs them.
+- **Bone checks & fixes.** Finds models that follow the wrong bones or sit off their skeleton, and **🦴 Fix bones** repairs them. Model parts whose names don't match the game's exactly (which makes hidden parts show up or get the wrong texture in game) are renamed by Auto-fix.
 - **NEW tags** on recently added mods.
 - **LTK Manager integration** *(optional)*. See what's loaded in [LTK Manager](https://github.com/LeagueToolkit/ltk-manager), and add, remove, enable or disable mods from the site. `.zip` mods are pre-converted to `.fantome` with a visible progress bar, so adding is quick.
 - **Auto-fix** *(optional, needs LtMAO-hai)*. Converts DDS → TEX, remaps outdated paths to the current game files, and repacks the mod. The original is kept in `_Originals`.
