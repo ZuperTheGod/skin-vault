@@ -817,9 +817,15 @@ def analyze_bones(champ_id, skin_num, game_dir, mod_path):
     gskn_p, gskl_p = mesh_paths(gread)
     skn_p, skl_p = mesh_paths(layers.get)
     skn_p = skn_p or gskn_p; skl_p = skl_p or gskl_p
+    masks = None
+    if skl_p and gskl_p and layers.source_of(skl_p) == "mod":
+        try:
+            masks = skin_mask_check(layers, gread, champ_id, skin_num, skl_p, gskl_p)
+        except Exception:
+            masks = None
     if not skn_p or not skl_p or layers.source_of(skn_p) != "mod":
-        return None
-    out = {"mesh": skn_p, "skeleton": skl_p, "skeleton_from": layers.source_of(skl_p)}
+        return {"verdict": "ok", "masks": masks, "skeleton": skl_p, "skeleton_from": "mod"} if masks else None
+    out = {"mesh": skn_p, "skeleton": skl_p, "skeleton_from": layers.source_of(skl_p), "masks": masks}
     try:
         skl = parse_skl(layers.get(skl_p))
         skn = layers.get(skn_p)
@@ -1229,6 +1235,17 @@ def _model_skin(layers, bins, smp, skn, skn_path, mod_mesh_fallback, champ_id, s
     except Exception as e:
         notes.append(f"Animations unavailable ({e})")
         return None, None
+    try:
+        gsrc = dict(layers.sources).get("game")
+        if skl_path and layers.source_of(skl_path) == "mod" and gsrc is not None:
+            gget = lambda p: gsrc.get(path_hash(p))() if gsrc.get(path_hash(p)) else None
+            mr = skin_mask_check(layers, gget, champ_id, skin_num, skl_path, skl_path)
+            if mr:
+                notes.append(f"In game this will look worse than here: the mod's skeleton has {mr['misplaced']} joint(s) in a "
+                             "different order than the game's animation masks expect, so when the game blends animations "
+                             "(e.g. attacking while running) limbs jump around. 🦴 Fix bones can fix this.")
+    except Exception:
+        pass
     ids = {j["id"]: i for i, j in enumerate(joints)}
     skin = {"joints": [{"n": j["name"], "p": ids.get(j["parent"], -1), "t": j["t"], "r": j["r"], "s": j["s"],
                         "it": j["it"], "ir": j["ir"], "is": j["is"]} for j in joints],
@@ -1573,3 +1590,152 @@ def list_clips(layers, bins, champ_id, skin_num):
                 out.append((nm.replace("_", " "), key))
             return out
     return []
+
+
+# ------------------------------------------------------------------ animation masks vs. a mod's skeleton
+# Animation graphs blend layers (e.g. upper body attacking while the legs run) with masks: one weight per joint,
+# listed in the order of the skeleton the masks were made for. A mod that ships its own skeleton with joints in a
+# different order (or extra joints) makes those weights land on the wrong bones, so in game limbs jump around
+# even though every single animation looks fine on its own (which is all the 3D viewer plays).
+H_MASKS, H_WEIGHTS = fnv1a("mMaskDataMap"), fnv1a("mWeightList")
+
+def bin_weight_lists(data):
+    """Every mWeightList (list of floats) in a PROP bin: [{"start", "n", "sizes": [offsets of enclosing size fields]}]."""
+    d = data; p = [0]; found = []; stack = []
+    def u8():
+        v = d[p[0]]; p[0] += 1; return v
+    def u16():
+        v = struct.unpack_from("<H", d, p[0])[0]; p[0] += 2; return v
+    def u32():
+        v = struct.unpack_from("<I", d, p[0])[0]; p[0] += 4; return v
+    def fields(n):
+        for _ in range(n):
+            name = u32(); t = u8()
+            value(t, name)
+    def value(t, name=None):
+        if t in BinReader.PRIM:
+            p[0] += BinReader.PRIM[t]; return
+        if t == 16:
+            n = u16(); p[0] += n; return
+        if t in (BinReader.LIST, BinReader.LIST2):
+            et = u8(); so = p[0]; size = u32(); end = p[0] + size; cnt = u32()
+            if name == H_WEIGHTS and et == 10:
+                found.append({"start": p[0], "n": cnt, "sizes": stack + [so], "count_at": p[0] - 4})
+            else:
+                stack.append(so)
+                for _ in range(cnt):
+                    value(et)
+                stack.pop()
+            p[0] = end; return
+        if t in (BinReader.POINTER, BinReader.EMBED):
+            if u32():
+                so = p[0]; size = u32(); end = p[0] + size
+                stack.append(so); fields(u16()); stack.pop(); p[0] = end
+            return
+        if t == BinReader.LINK:
+            p[0] += 4; return
+        if t == BinReader.OPTION:
+            et = u8()
+            if u8():
+                value(et)
+            return
+        if t == BinReader.MAP:
+            kt = u8(); vt = u8(); so = p[0]; size = u32(); end = p[0] + size; cnt = u32()
+            stack.append(so)
+            for _ in range(cnt):
+                value(kt); value(vt)
+            stack.pop(); p[0] = end; return
+        if t == BinReader.FLAG:
+            p[0] += 1; return
+        raise ValueError(f"unknown bin type {t}")
+    if d[:4] == b"PTCH":
+        p[0] = 16
+    if d[p[0]:p[0] + 4] != b"PROP":
+        raise ValueError("not a PROP bin")
+    p[0] += 4
+    if u32() >= 2:
+        for _ in range(u32()):
+            n = u16(); p[0] += n
+    count = u32()
+    p[0] += 4 * count
+    for _ in range(count):
+        so = p[0]; size = u32(); end = p[0] + size
+        stack.append(so); u32(); fields(u16()); stack.pop()
+        p[0] = end
+    return found
+
+def anim_graph_path(layers, bins, champ_id, skin_num):
+    """Path of the skin's animation graph bin (whichever copy the game would load: mod first)."""
+    c = champ_id.lower()
+    cands = [l for b in bins[:1] for l in b.linked if "/animations/" in l.lower()]
+    cands += [f"data/characters/{c}/animations/skin{skin_num}.bin", f"data/characters/{c}/animations/skin0.bin"]
+    for p in cands:
+        if layers.source_of(p):
+            return p
+    return None
+
+def _mask_mapping(mod_joints, game_joints):
+    """For each mod joint, the game-skeleton index whose mask weight it should get (nearest ancestor for new joints)."""
+    gidx = {j["hash"]: i for i, j in enumerate(game_joints)}
+    out = []
+    for i, j in enumerate(mod_joints):
+        k, seen = i, 0
+        while k is not None and seen < 64:
+            g = gidx.get(mod_joints[k]["hash"])
+            if g is not None:
+                break
+            par = mod_joints[k]["parent"]
+            k = next((n for n, x in enumerate(mod_joints) if x["id"] == par), None) if par >= 0 else None
+            seen += 1
+        out.append(g if k is not None else None)
+    return out
+
+def mask_check(mod_skl, game_skl, anim_raw):
+    """None when the masks fit the skeleton the game will use, else {"mask_len", "joints", "misplaced", "fixable"}."""
+    lists = bin_weight_lists(anim_raw)
+    if not lists:
+        return None
+    mj, _ = skl_bind(mod_skl); gj, _ = skl_bind(game_skl)
+    L = max(x["n"] for x in lists)
+    if [j["hash"] for j in mj] == [j["hash"] for j in gj][:len(mj)] and len(mj) == L:
+        return None
+    if len(mj) == L and L != len(gj):
+        return None        # masks already made for this (custom) skeleton
+    m = _mask_mapping(mj, gj)
+    misplaced = sum(1 for i, g in enumerate(m) if g != i)
+    if not misplaced and len(mj) == L:
+        return None
+    return {"mask_len": L, "joints": len(mj), "game_joints": len(gj), "misplaced": misplaced, "fixable": L == len(gj)}
+
+def remap_masks(anim_raw, mod_skl, game_skl):
+    """Rewrite every mask so weight i belongs to the mod skeleton's joint i. Returns (new bin bytes, masks changed)."""
+    mj, _ = skl_bind(mod_skl); gj, _ = skl_bind(game_skl)
+    m = _mask_mapping(mj, gj)
+    out = bytearray(anim_raw); changed = 0
+    for wl in sorted(bin_weight_lists(anim_raw), key=lambda x: -x["start"]):
+        old = struct.unpack_from(f"<{wl['n']}f", anim_raw, wl["start"])
+        new = [old[g] if g is not None and g < len(old) else 0.0 for g in m]
+        blob = struct.pack(f"<{len(new)}f", *new)
+        delta = len(blob) - 4 * wl["n"]
+        out[wl["start"]:wl["start"] + 4 * wl["n"]] = blob
+        struct.pack_into("<I", out, wl["count_at"], len(new))
+        for so in wl["sizes"]:
+            struct.pack_into("<I", out, so, struct.unpack_from("<I", out, so)[0] + delta)
+        changed += 1
+    return bytes(out), changed
+
+def skin_mask_check(layers, gread, champ_id, skin_num, skl_p, gskl_p):
+    """mask_check for a mod (layers = mod over game) - or None when it fits / there's nothing to check."""
+    c = champ_id.lower()
+    raw = layers.get(f"data/characters/{c}/skins/skin{skin_num}.bin")
+    bins = [BinReader(raw)] if raw else []
+    ap = anim_graph_path(layers, bins, champ_id, skin_num)
+    if not ap:
+        return None
+    gskl = gread(gskl_p) if isinstance(gskl_p, str) else None
+    if gskl is None:
+        return None
+    r = mask_check(layers.get(skl_p), gskl, layers.get(ap))
+    if r:
+        r["graph"] = ap; r["graph_from"] = layers.source_of(ap)
+    return r

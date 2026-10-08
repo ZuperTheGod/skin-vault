@@ -673,7 +673,7 @@ function modHtml(m){
   const kids = (m.children||[]).length ? `<div class="children">${m.children.map(c=>`<div>• ${esc(c.name)} ${c.champ?'→ <b>'+esc(S.champs[c.champ]?.name||c.champ)+'</b>':''} ${c.applies_label?'· '+esc(c.applies_label):''}</div>`).join('')}</div>` : '';
   const acts = [
     m.champ && !/^(Voice|Loading|Pack)/.test(m.type||'') && !/\.(7z|rar)$/i.test(m.filename) ? `<button class="btn small primary" onclick="open3D({id:'${m.id}'})">🧊 3D view</button>` + cmpBtn({id:m.id}) : '',
-    m.rig && ['twisted','partly','offset'].includes(m.rig.verdict) && !/\.(7z|rar)$/i.test(m.filename) ? `<button class="btn small ${m.rig.verdict==='partly'?'':'gold'}" onclick="fixDlg('${m.id}')" title="Re-attach the parts that follow the wrong bones">🦴 Fix bones</button>` : '',
+    m.rig && (['twisted','partly','offset'].includes(m.rig.verdict) || (m.rig.masks && m.rig.masks.fixable)) && !/\.(7z|rar)$/i.test(m.filename) ? `<button class="btn small ${m.rig.verdict==='partly'?'':'gold'}" onclick="fixDlg('${m.id}')" title="Re-attach the parts that follow the wrong bones">🦴 Fix bones</button>` : '',
     m.champ && !/^(Voice|Loading|Pack)/.test(m.type||'') && !/\.(7z|rar)$/i.test(m.filename) ? `<button class="btn small ${m.outdated?'gold':''}" onclick="fixDlg('${m.id}')">🛠 Auto-fix</button>` : '',
     `<button class="btn small" onclick="openMod('${m.id}')">📂 Show in folder</button>`,
     (m.children||[]).length?`<button class="btn small gold" onclick="unpack('${m.id}')">Unpack</button>`:'',
@@ -978,7 +978,7 @@ function fixDlg(id){
   const isLtk = id.startsWith('ltk:');
   modal(`<div class="modal-h"><h2>Auto-fix “${esc(m.name)}”</h2><div class="spacer"></div><button class="btn small" onclick="closeModal()">✕</button></div>
     <div class="modal-b">
-      ${m.rig && ['twisted','partly','offset'].includes(m.rig.verdict) ? `<p style="margin-top:0;background:#2a1d08;border:1px solid #6b5220;border-radius:8px;padding:8px 10px;color:#ffd58a">🦴 ${m.rig.verdict==='offset' ? 'The model is shifted off its skeleton - it will be moved back into place.' : `About ${Math.round((1-(m.rig.agreement||0))*100)}% of the model follows the wrong bones - those parts get re-attached to the bones the original model uses.`}</p>` : ''}
+      ${m.rig && (['twisted','partly','offset'].includes(m.rig.verdict) || (m.rig.masks && m.rig.masks.fixable)) ? `<p style="margin-top:0;background:#2a1d08;border:1px solid #6b5220;border-radius:8px;padding:8px 10px;color:#ffd58a">🦴 ${rigFixMsg(m.rig)}</p>` : ''}
       <p style="color:var(--muted);margin-top:0">Uses <b>LtMAO-hai</b> to unpack the mod, line its model, skeleton and textures up with what the current game loads for the skin below, convert textures to <b>TEX</b>, point any of the mod's own bin files at the TEX textures, and repack it.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>Make it show on:</span>
         <select id="fxSlot">${c.skins.map(s=>`<option value="${s.num}" ${s.num===cur?'selected':''}>${esc(s.name)} (#${s.num})</option>`).join('')}</select></div>
@@ -1134,6 +1134,13 @@ async function load3D(){
     renderSide3D(); V.animErr = await V3D.play(V.clip);
   }catch(e){ msg.textContent = 'Failed to load: '+e; }
   renderSide3D();
+}
+function rigFixMsg(r){
+  const parts = [];
+  if (r.verdict === 'offset') parts.push('The model is shifted off its skeleton - it will be moved back into place.');
+  else if (['twisted','partly'].includes(r.verdict)) parts.push(`About ${Math.round((1-(r.agreement||0))*100)}% of the model follows the wrong bones - those parts get re-attached to the bones the original model uses.`);
+  if (r.masks && r.masks.fixable) parts.push(`The skeleton's joints are in a different order than the game's animation masks expect (${r.masks.misplaced} joints) - a matching copy of the animation setup is added so blended animations move the right bones.`);
+  return parts.join(' ');
 }
 async function pickClip(i){ V.clip = i; V.animErr = null; renderSide3D(); V.animErr = await V3D.play(i); V3D.pause(false); renderSide3D(); }
 function togglePlay(){ const a = V3D.anim; V3D.pause(a.playing); renderSide3D(); }

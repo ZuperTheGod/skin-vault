@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.0.7"
+VERSION = "1.0.8"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -849,7 +849,13 @@ def check_rig(path, rec):
         return
     if not r:
         return
-    rec["rig"] = {k: r.get(k) for k in ("verdict", "overlap", "agreement", "shift", "note")}
+    rec["rig"] = {k: r.get(k) for k in ("verdict", "overlap", "agreement", "shift", "note", "masks")}
+    mk = r.get("masks")
+    if mk:
+        rec["issues"].append({"level": "warn", "msg": f"Bones jump around in game: the mod's skeleton has {mk['misplaced']} joint(s) in a different "
+                              "order than the game's animation masks expect, so whenever the game blends animations (attacking while "
+                              "running, emotes, etc.) arms and legs get pulled the wrong way. Single animations in the 3D viewer can "
+                              "still look fine. " + ("Click 🦴 Fix bones." if mk.get("fixable") else "")})
     v = r.get("verdict")
     wrong = round((1 - (r.get("agreement") or 0)) * 100)
     if v == "twisted":
@@ -926,7 +932,7 @@ STATE = {"status": "idle", "progress": 0, "total": 0, "current": "", "last_scan"
          "mods": {}, "folders": {}, "loose": [], "events": [], "scan_seconds": 0}
 LOCK = threading.RLock()
 CACHE_PATH = os.path.join(DATA_DIR, "scan_cache.json")
-SCAN_VERSION = 11
+SCAN_VERSION = 12
 
 def load_cache():
     try:

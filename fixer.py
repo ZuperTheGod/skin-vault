@@ -434,7 +434,13 @@ def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path,
         except Exception as e:
             report["warnings"].append(f"Couldn't check the model's bones: {e}")
 
-        if not report["mapped"] and not report["bins_patched"] and not report.get("bins_retyped") and not report.get("bones_fixed"):
+        try:
+            _fix_masks(cw, champ_id, slot, game_wad, report, step)
+        except Exception as e:
+            report["warnings"].append(f"Couldn't check the animation masks: {e}")
+
+        if not report["mapped"] and not report["bins_patched"] and not report.get("bins_retyped") and not report.get("bones_fixed") \
+                and not report.get("masks_fixed"):
             report["warnings"].append("Nothing needed changing - the mod's files already match what the game loads, "
                                       "or it doesn't contain a model/texture for this skin.")
 
@@ -601,6 +607,55 @@ def _fix_rig(cw, champ_id, slot, game_wad, report, step):
     report["bones_fixed"] = n; report["rig_after"] = after
     step(f"Bones: {moved}re-attached {n} vertices to the right bones "
          f"({round(v.get('agreement', 0) * 100)}% -> {round(after['agreement'] * 100)}% matching the original rig)")
+
+def _fix_masks(cw, champ_id, slot, game_wad, report, step):
+    """Mod ships its own skeleton -> make the animation graph's per-joint masks follow that skeleton's joint order."""
+    c = champ_id.lower()
+    gread = lambda p: game_wad.read(lol3d.path_hash(p)) if p and lol3d.path_hash(p) in game_wad.entries else None
+    bin_path = f"data/characters/{c}/skins/skin{slot}.bin"
+    mb = _find_in(cw, bin_path)
+    raw = open(mb, "rb").read() if mb else gread(bin_path)
+    gb = gread(bin_path)
+    if not raw or not gb:
+        return
+    b = lol3d.BinReader(raw)
+    smp, _ = lol3d.find_skin_mesh([b])
+    gsmp, _ = lol3d.find_skin_mesh([lol3d.BinReader(gb)])
+    skl_p = (smp or {}).get(lol3d.H["skeleton"]); gskl_p = (gsmp or {}).get(lol3d.H["skeleton"])
+    skl_f = _find_in(cw, skl_p)
+    gskl = gread(gskl_p)
+    if not skl_f or not gskl:
+        return                                  # the mod doesn't bring its own skeleton
+    cands = [l for l in b.linked if "/animations/" in l.lower()] + [f"data/characters/{c}/animations/skin{slot}.bin",
+                                                                   f"data/characters/{c}/animations/skin0.bin"]
+    ap = af = anim = None
+    for p in cands:
+        af = _find_in(cw, p)
+        anim = open(af, "rb").read() if af else gread(p)
+        if anim:
+            ap = p; break
+    if not anim:
+        return
+    skl = open(skl_f, "rb").read()
+    try:
+        r = lol3d.mask_check(skl, gskl, anim)
+    except ValueError as e:
+        report["warnings"].append(f"Animation masks not checked: {e}")
+        return
+    report["masks_before"] = r
+    if not r:
+        return
+    if not r.get("fixable"):
+        report["warnings"].append("The skeleton doesn't match the game's animation masks, and the masks couldn't be matched up automatically")
+        return
+    new, n = lol3d.remap_masks(anim, skl, gskl)
+    dest = af or os.path.join(cw, *ap.lower().split("/"))
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "wb") as f:
+        f.write(new)
+    report["masks_fixed"] = n
+    step(f"Bones: matched {n} animation mask(s) to the mod's skeleton ({r['misplaced']} joints were out of order) - "
+         "blended animations now move the right bones")
 
 def _extract(zf, dst):
     for i in zf.infolist():

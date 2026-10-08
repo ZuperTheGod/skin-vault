@@ -241,6 +241,32 @@ def animation_formats():
         p = lol3d.anim_payload(data, joints)
         assert p["matched"] >= 1 and any(e["j"] == 1 and "r" in e for e in p["tracks"]), p
 
+def _mask_bin(weights):
+    """Minimal animation graph bin: one mask with the given per-joint weights."""
+    wl = struct.pack("<I", lol3d.fnv1a("mWeightList")) + bytes([128, 10]) + struct.pack("<II", 4 + 4 * len(weights), len(weights)) + struct.pack(f"<{len(weights)}f", *weights)
+    emb = struct.pack("<H", 1) + wl
+    item = struct.pack("<I", 1234) + struct.pack("<II", lol3d.fnv1a("MaskData"), len(emb)) + emb
+    mp = struct.pack("<I", lol3d.fnv1a("mMaskDataMap")) + bytes([134, 7, 131]) + struct.pack("<II", 4 + len(item), 1) + item
+    ent = struct.pack("<IH", 99, 1) + mp
+    return b"PROP" + struct.pack("<III", 3, 0, 1) + struct.pack("<I", lol3d.fnv1a("AnimationGraphData")) + struct.pack("<I", len(ent)) + ent
+
+@test
+def animation_masks_follow_mod_skeleton():
+    """A mod skeleton with reordered/extra joints gets the game's animation masks remapped onto its joints."""
+    game = _skl([(11, -1, (0, 0, 0)), (22, 0, (0, 50, 0)), (33, 1, (0, 100, 0)), (44, 0, (30, 40, 0))])
+    weights = [0.0, 0.25, 1.0, 0.5]                                   # per game joint
+    assert lol3d.mask_check(game, game, _mask_bin(weights)) is None
+    # mod: joints 22 and 33 swapped places (parents kept by id), plus a new joint 55 hanging off 33
+    mod = _skl([(11, -1, (0, 0, 0)), (33, 2, (0, 100, 0)), (22, 0, (0, 50, 0)), (44, 0, (30, 40, 0)), (55, 1, (0, 120, 0))])
+    r = lol3d.mask_check(mod, game, _mask_bin(weights))
+    assert r and r["fixable"] and r["joints"] == 5 and r["mask_len"] == 4, r
+    new, n = lol3d.remap_masks(_mask_bin(weights), mod, game)
+    assert n == 1
+    b = lol3d.BinReader(new)
+    w = list(b.entries.values())[0][1][lol3d.fnv1a("mMaskDataMap")][1234][lol3d.fnv1a("mWeightList")]
+    assert w == [0.0, 1.0, 0.25, 0.5, 1.0], w                         # 55 inherits from its parent 33
+    assert lol3d.mask_check(mod, game, new) is None
+
 @test
 def skn_parse():
     m = lol3d.parse_skn(fixtures.skn_bytes())
