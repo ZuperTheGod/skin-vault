@@ -288,17 +288,38 @@ def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path,
             skns_map, texs_map = skns, texs
         # ---- 5. mesh + skeleton
         mesh_pick = None
+        def file_hash(rel):
+            m = re.match(r"^([0-9a-fA-F]{16})(\.\w+)?$", rel)
+            return int(m.group(1), 16) if m else lol3d.path_hash(rel)
+        def at(path, pool):
+            """The mod's file already sitting at this exact game path, if any."""
+            if not path:
+                return None
+            h = int(path, 16) if re.fullmatch(r"[0-9a-f]{16}", path) else lol3d.path_hash(path)
+            return next((x for x in pool if file_hash(x[0]) == h), None)
+        def elsewhere(x, target):
+            """A file at a path the current game uses for something else (e.g. Tibbers' model inside Annie's mod) -
+            it's not an outdated copy of this skin's file, so it must never be moved onto it."""
+            h = file_hash(x[0])
+            th = (int(target, 16) if re.fullmatch(r"[0-9a-f]{16}", target or "") else lol3d.path_hash(target)) if target else None
+            return h != th and h in game_wad.entries
         if skns_map:
             slot_dir = f"/skin{slot:02d}/" if slot else "/base/"
-            mesh_pick = max(skns, key=lambda x: (slot_dir in "/" + x[0], os.path.getsize(x[1])))
-            place(mesh_pick[1], g_mesh, "model")
-            if skls:
+            mesh_pick = at(g_mesh, skns)
+            if mesh_pick is None:
+                cands = [x for x in skns if not elsewhere(x, g_mesh)]
+                if cands:
+                    mesh_pick = max(cands, key=lambda x: (slot_dir in "/" + x[0], f"/{c}/" in "/" + x[0], os.path.getsize(x[1])))
+                    place(mesh_pick[1], g_mesh, "model")
+            skl_have = at(g_skl, skls)
+            skl_cands = [x for x in skls if not elsewhere(x, g_skl)]
+            if mesh_pick and skl_have is None and skl_cands:
                 d = os.path.dirname(mesh_pick[0])
-                skl_pick = max(skls, key=lambda x: (os.path.dirname(x[0]) == d, os.path.getsize(x[1])))
+                skl_pick = max(skl_cands, key=lambda x: (os.path.dirname(x[0]) == d, os.path.getsize(x[1])))
                 if place(skl_pick[1], g_skl, "skeleton"):
                     report["warnings"].append("Replaced the skeleton with the mod's - animations come from the current game, "
                                               "so if the model moves oddly in game, the mod's skeleton is too old for them.")
-            else:
+            elif mesh_pick and skl_have is None and not skls:
                 report["warnings"].append("The mod has a model but no skeleton - using the game's skeleton")
 
         # ---- 6. textures: pick a mod texture for every texture the game skin loads
@@ -316,7 +337,8 @@ def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path,
         for label, gpath in targets:
             want = stem_key(gpath) if not re.fullmatch(r"[0-9a-f]{16}", gpath or "") else None
             cands = []
-            for rel, full, k in texs:
+            exact = at(gpath, texs)
+            for rel, full, k in ([exact] if exact else [x for x in texs if not elsewhere(x, gpath)]):
                 score = 0
                 sk = stem_key(rel)
                 if want and sk == want:
@@ -331,9 +353,10 @@ def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path,
                     cands.append((score, res_rank(rel), os.path.getsize(full), rel, full, k))
             if not cands and label == "main" and mesh_pick and texs:
                 # model replaced but nothing named like a diffuse texture -> biggest texture next to the model
-                near = [(0, res_rank(r), os.path.getsize(f), r, f, k) for r, f, k in texs
+                ok = [x for x in texs if not elsewhere(x, gpath)]
+                near = [(0, res_rank(r), os.path.getsize(f), r, f, k) for r, f, k in ok
                         if os.path.dirname(r) == mesh_folder] or \
-                       [(0, res_rank(r), os.path.getsize(f), r, f, k) for r, f, k in texs]
+                       [(0, res_rank(r), os.path.getsize(f), r, f, k) for r, f, k in ok]
                 cands = near
             if not cands:
                 continue

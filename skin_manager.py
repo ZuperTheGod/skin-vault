@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
