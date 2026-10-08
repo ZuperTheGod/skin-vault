@@ -33,6 +33,24 @@ A 4-minute walkthrough for complete beginners: what skin mods are, how to instal
 
 ![Champion view](docs/champion.png)
 
+## Skin Vault vs LTK Manager
+
+People sometimes ask whether Skin Vault is an LTK Manager clone. It isn't. They do different jobs and are meant to be used together.
+
+| | **LTK Manager** | **Skin Vault** |
+|---|---|---|
+| **What it's for** | Loading mods into the game, and (in its Workshop) **making and editing** mods | **Organizing and repairing** a big collection of downloaded mods |
+| **Loads mods into League** | ✅ It's the mod loader (profiles, load order, launch) | ❌ Never. It hands mods to LTK when you want to play |
+| **Which champion and skin a mod replaces** | — | ✅ Reads each mod's files, shows the splash art and the exact skin to pick, even when the mod is named wrong |
+| **Sorting your folder** | — | ✅ Champion/Skin folders, drag & drop import, packs split, duplicates caught, undo |
+| **Library-wide problem scan** | Health checks for mods you've installed | ✅ Scans every file in your folder: outdated paths, twisted bones, models off their skeleton, part names that don't match the game, mods filed under the wrong skin |
+| **Bulk repair** | One-click repair for simple setting changes | ✅ Auto-fix and Fix bones (texture conversion, path remapping, bone re-attachment, part renaming), originals kept |
+| **3D preview** | ✅ Its Workshop has a far more advanced one, built for mod makers: real materials, bone physics, effects, ability previews | A quick check before you load a mod: the mod next to the original, real animations, Compare up to 3 mods |
+
+**In short:** LTK puts mods into your game, and its Workshop is the tool for building them. Skin Vault keeps your mod folder organized, tells you which skin to pick, and fixes broken mods before you load them into LTK.
+
+Thanks to the LeagueToolkit team. LTK Manager does the hard part of getting mods into the game, and their public notes on how League handles skins are a great reference.
+
 ## Requirements
 
 - **Windows 10/11** with League of Legends installed. The game files are used for skin matching and the 3D viewer. Without them the manager still works, with less accurate matching.
