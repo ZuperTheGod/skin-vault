@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -1690,6 +1690,7 @@ def mod_image(mid):
 # ---------------------------------------------------------------- 3D viewer
 TEX_SESSIONS = {}
 TEX_ORDER = []
+ANIM_SESSIONS = {}
 
 _GAME_DIR = {"v": None, "t": 0}
 
@@ -1722,8 +1723,12 @@ def model_payload(champ, skin, mid=None):
     model, textures = lol3d.build_model(champ, int(skin or 0), game_dir(), mod_path)
     sid = uuid.uuid4().hex[:10]
     TEX_SESSIONS[sid] = textures; TEX_ORDER.append(sid)
+    anim = model.pop("_anim", None)
+    if anim:
+        ANIM_SESSIONS[sid] = anim
     while len(TEX_ORDER) > 8:
-        TEX_SESSIONS.pop(TEX_ORDER.pop(0), None)
+        old = TEX_ORDER.pop(0)
+        TEX_SESSIONS.pop(old, None); ANIM_SESSIONS.pop(old, None)
     model["session"] = sid
     model["champ"] = champ; model["skin"] = int(skin or 0)
     model["skin_label"] = skin_label(champ, int(skin or 0))
@@ -2479,6 +2484,16 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 traceback.print_exc()
                 return self.send(200, {"error": str(e)})
+        if u.path == "/api/3d/anim":
+            a = ANIM_SESSIONS.get(q.get("s", [""])[0])
+            try:
+                i = int(q.get("i", ["0"])[0])
+                if not a or not (0 <= i < len(a["clips"])):
+                    return self.send(404, {"error": "This 3D view expired - open it again"})
+                return self.send(200, lol3d.clip_data(a, i))
+            except Exception as e:
+                traceback.print_exc()
+                return self.send(200, {"error": f"Couldn't read this animation ({e})"})
         if u.path == "/api/3d/tex":
             t = TEX_SESSIONS.get(q.get("s", [""])[0], {}).get(q.get("k", [""])[0])
             if not t:

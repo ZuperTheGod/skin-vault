@@ -22,6 +22,7 @@ A 4-minute walkthrough for complete beginners: what skin mods are, how to instal
 - **Drag & drop import.** Drop downloads onto the window (or save them into `_Drop Here`). Each one is identified and moved into `Champion\Skin\`. Packs are split and duplicates are caught.
 - **Issue checks.** Corrupt archives, `.rar` files, mods built for an old patch ("outdated"), mods in the wrong folder, extracted copies, voice-only WADs and more.
 - **Real 3D preview** of the mod next to the original skin, plus **3D compare** for up to three models side by side.
+- **Animation playback.** The 3D viewer plays the skin's real in-game animations (idle, run, attacks, spells, dance, recall…), so twisted bones and stretched parts show up before you load into a game.
 - **NEW tags** on recently added mods.
 - **LTK Manager integration** *(optional)*. See what's loaded in [LTK Manager](https://github.com/LeagueToolkit/ltk-manager), and add, remove, enable or disable mods from the site. `.zip` mods are pre-converted to `.fantome` with a visible progress bar, so adding is quick.
 - **Auto-fix** *(optional, needs LtMAO-hai)*. Converts DDS → TEX, remaps outdated paths to the current game files, and repacks the mod. The original is kept in `_Originals`.

@@ -159,6 +159,9 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--panel2)}
 .v3d-side{border-left:1px solid var(--line);padding:16px;overflow:auto;display:flex;flex-direction:column;gap:12px}
 .v3d-side h2{margin:0;font-size:17px;color:var(--gold2)}
 .v3d-side .sub{color:var(--muted);font-size:12.5px}
+.anim-ctl{display:flex;align-items:center;gap:8px;margin-top:8px}
+.anim-ctl input[type=range]{flex:1;min-width:0}
+.seg.mini button{padding:3px 7px;font-size:11.5px}
 .seg{display:flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
 .seg button{flex:1;background:none;border:0;padding:7px 8px;font-size:12.5px;color:var(--muted)}
 .seg button.on{background:#2a2312;color:var(--gold2)}
@@ -259,6 +262,10 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--panel2)}
 <div class="toasts" id="toasts"></div>
 <div class="cmp-bg" id="cmpBg">
   <div class="cmp-h"><h2>3D Compare</h2><span class="sub" id="cmpSub" style="color:var(--muted);font-size:12.5px"></span><div class="spacer"></div>
+    <label style="display:flex;gap:6px;align-items:center;font-size:12.5px" title="Plays the same animation on every model, in step">Animation
+      <select id="cmpAnim" onchange="cmpAnim(this.value)"><option value="">Bind pose</option></select></label>
+    <button class="btn small" id="cmpPlay" onclick="cmpPlay()">⏸</button>
+    <div class="seg mini" id="cmpSpeed"></div>
     <label style="display:flex;gap:6px;align-items:center;font-size:12.5px"><input type="checkbox" id="cmpAuto" checked onchange="V3C.setAuto(this.checked)"> Auto-rotate</label>
     <label style="display:flex;gap:6px;align-items:center;font-size:12.5px" title="Show every model at the same height"><input type="checkbox" id="cmpNorm" onchange="V3C.setNormalize(this.checked)"> Same height</label>
     <button class="btn small" onclick="V3C.reset()">Reset view</button>
@@ -303,10 +310,9 @@ function resize(){
   const r = stage().getBoundingClientRect();
   renderer.setSize(r.width, r.height, false); camera.aspect = r.width/Math.max(1,r.height); camera.updateProjectionMatrix();
 }
-function loop(){ raf = requestAnimationFrame(loop); if (root && autoRotate) root.rotation.y += 0.006; controls.update(); renderer.render(scene, camera); }
+function loop(){ raf = requestAnimationFrame(loop); const dt = Math.min(clock.getDelta(), .1); if (rig && playing) rig.mixer.update(dt * speed); if (root && autoRotate) root.rotation.y += 0.006; controls.update(); renderer.render(scene, camera); }
 const b64 = (s, T) => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return new T(u.buffer); };
-function build(m){
-  if (root){ scene.remove(root); root.traverse(o=>{ if(o.geometry) o.geometry.dispose(); if(o.material){ [].concat(o.material).forEach(x=>{ x.map&&x.map.dispose(); x.dispose(); }); } }); }
+function makeMesh(m){
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(b64(m.positions, Float32Array), 3));
   g.setAttribute('normal', new THREE.BufferAttribute(b64(m.normals, Float32Array), 3));
@@ -326,43 +332,88 @@ function build(m){
     mat.visible = !sm.hidden;
     return mat;
   });
-  const mesh = new THREE.Mesh(g, mats);
+  const sk = m.rig;
+  if (sk){
+    g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(b64(sk.idx, Uint16Array), 4));
+    g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(b64(sk.w, Float32Array), 4));
+  }
+  const mesh = sk ? new THREE.SkinnedMesh(g, mats) : new THREE.Mesh(g, mats);
   mesh.scale.set(-1, 1, 1);  // League meshes are mirrored on X
-  root = new THREE.Group(); root.add(mesh); scene.add(root);
   g.computeBoundingBox(); const bb = g.boundingBox; const size = new THREE.Vector3(); bb.getSize(size); const c = new THREE.Vector3(); bb.getCenter(c);
   mesh.position.set(c.x, -bb.min.y, -c.z);
-  const h = size.y, rad = Math.max(size.x, size.z);
+  const root = new THREE.Group(); root.add(mesh);
+  let rig = null;
+  if (sk){
+    // bones get the skeleton's local bind pose; inverse binds come straight from the .skl like in game,
+    // so a mod whose mesh doesn't fit its skeleton looks just as broken here as it does in a match
+    const bones = sk.joints.map((j, i) => { const b = new THREE.Bone(); b.name = 'j' + i; b.position.set(...j.t); b.quaternion.set(...j.r); b.scale.set(...j.s); return b; });
+    sk.joints.forEach((j, i) => { (j.p >= 0 && j.p !== i ? bones[j.p] : mesh).add(bones[i]); });
+    root.updateMatrixWorld(true);
+    const mw = mesh.matrixWorld.clone(), mwi = mw.clone().invert();
+    const inv = sk.joints.map(j => new THREE.Matrix4().compose(new THREE.Vector3(...j.it), new THREE.Quaternion(...j.ir), new THREE.Vector3(...j.is)).multiply(mwi));
+    mesh.bind(new THREE.Skeleton(bones, inv), mw);
+    mesh.frustumCulled = false;
+    const bind = bones.map(b => [b.position.clone(), b.quaternion.clone(), b.scale.clone()]);
+    rig = {mesh, bones, mixer: new THREE.AnimationMixer(mesh), clips: m.anims || [], session: m.session, cur: -1,
+           reset(){ this.mixer.stopAllAction(); this.mixer.uncacheRoot(this.mesh); this.mixer = new THREE.AnimationMixer(this.mesh);
+                    this.bones.forEach((b, i) => { b.position.copy(bind[i][0]); b.quaternion.copy(bind[i][1]); b.scale.copy(bind[i][2]); }); }};
+  }
+  return {root, mesh, mats, rig, h: size.y, rad: Math.max(size.x, size.z)};
+}
+// ---------------- animation playback (League .anm clips, decoded by the server)
+const CLIP_CACHE = {};
+function fetchClip(session, i){
+  const k = session + ':' + i;
+  if (!CLIP_CACHE[k]) CLIP_CACHE[k] = fetch(`/api/3d/anim?s=${session}&i=${i}`).then(r => r.json()).catch(e => ({error: String(e)}));
+  return CLIP_CACHE[k];
+}
+function toClip(d){
+  const tracks = [];
+  for (const e of d.tracks){
+    if (e.t) tracks.push(new THREE.VectorKeyframeTrack(`j${e.j}.position`, b64(e.t[0], Float32Array), b64(e.t[1], Float32Array)));
+    if (e.r) tracks.push(new THREE.QuaternionKeyframeTrack(`j${e.j}.quaternion`, b64(e.r[0], Float32Array), b64(e.r[1], Float32Array)));
+    if (e.s) tracks.push(new THREE.VectorKeyframeTrack(`j${e.j}.scale`, b64(e.s[0], Float32Array), b64(e.s[1], Float32Array)));
+  }
+  return new THREE.AnimationClip(d.name || 'clip', d.duration, tracks);
+}
+// play clip i on a rig (-1 = bind pose). Resolves to an error string, or null when it plays.
+async function playClip(rig, i){
+  if (!rig) return 'This model has no skeleton, so it can\'t be animated';
+  rig.cur = i; rig.reset();
+  if (i < 0) return null;
+  const d = await fetchClip(rig.session, i);
+  if (rig.cur !== i) return null;           // picked another clip while this one loaded
+  if (d.error) return d.error;
+  if (!d.matched) return 'This animation doesn\'t fit this skeleton';
+  rig.action = rig.mixer.clipAction(toClip(d)); rig.action.play();
+  return null;
+}
+// clip index whose name best matches a word like "idle" / "run" (for compare panels of different champions)
+function clipFor(rig, word){
+  if (!rig || !word) return -1;
+  const cs = rig.clips.map(c => c.name.toLowerCase());
+  let i = cs.findIndex(n => n === word || n === word + '1' || n === word + '1 base' || n === word + ' base');
+  if (i < 0) i = cs.findIndex(n => n.startsWith(word) && !/ (in|out|wndup|winddown)$/.test(n));
+  if (i < 0) i = cs.findIndex(n => n.startsWith(word) || n.includes(' ' + word));
+  return i;
+}
+const clock = new THREE.Clock();
+let rig = null, playing = true, speed = 1;
+function build(m){
+  if (root){ scene.remove(root); root.traverse(o=>{ if(o.geometry) o.geometry.dispose(); if(o.material){ [].concat(o.material).forEach(x=>{ x.map&&x.map.dispose(); x.dispose(); }); } }); }
+  const mm = makeMesh(m);
+  root = mm.root; rig = mm.rig; scene.add(root);
+  const h = mm.h, rad = mm.rad;
   const ground = scene.getObjectByName('ground'); ground.scale.setScalar(Math.max(rad*0.5, h*0.22));
   controls.target.set(0, h*0.48, 0);
   camera.position.set(0, h*0.6, Math.max(h, rad) * 2.1);
   camera.near = Math.max(0.1, h/100); camera.far = h*100; camera.updateProjectionMatrix();
   controls.update();
-  return mats;
+  return mm.mats;
 }
 // ---------------- 3D compare: one renderer, one shared camera, a scene per panel (scissor viewports)
-const C = {renderer:null, camera:null, controls:null, scenes:[], raf:0, auto:true, normalize:false, ro:null};
-function makeModel(m){
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(b64(m.positions, Float32Array), 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(b64(m.normals, Float32Array), 3));
-  g.setAttribute('uv', new THREE.BufferAttribute(b64(m.uvs, Float32Array), 2));
-  g.setIndex(new THREE.BufferAttribute(b64(m.indices, Uint16Array), 1));
-  const loader = new DDSLoader(); const cache = {};
-  const mats = m.submeshes.map((sm, i) => {
-    g.addGroup(sm.start, sm.count, i);
-    const mat = new THREE.MeshStandardMaterial({color: sm.tex ? 0xffffff : 0x8a8f99, roughness:.85, metalness:0, side:THREE.DoubleSide, alphaTest:.3});
-    if (sm.tex){
-      if (!cache[sm.tex]){ cache[sm.tex] = loader.load(`/api/3d/tex?s=${m.session}&k=${sm.tex}`, t=>{ t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; }, undefined, ()=>{}); cache[sm.tex].colorSpace = THREE.SRGBColorSpace; }
-      mat.map = cache[sm.tex];
-    }
-    mat.visible = !sm.hidden; return mat;
-  });
-  const mesh = new THREE.Mesh(g, mats); mesh.scale.set(-1,1,1);
-  g.computeBoundingBox(); const bb = g.boundingBox; const size = new THREE.Vector3(); bb.getSize(size); const c = new THREE.Vector3(); bb.getCenter(c);
-  mesh.position.set(c.x, -bb.min.y, -c.z);
-  const root = new THREE.Group(); root.add(mesh);
-  return {root, mats, h:size.y, rad:Math.max(size.x, size.z)};
-}
+const C = {renderer:null, camera:null, controls:null, scenes:[], raf:0, auto:true, normalize:false, ro:null, playing:true, speed:1, word:'idle'};
+const makeModel = makeMesh;
 function cmpScene(){
   const sc = new THREE.Scene();
   sc.add(new THREE.HemisphereLight(0xdfe8ff, 0x302418, 1.6));
@@ -406,7 +457,9 @@ function cmpLoop(){
   C.controls.update();
   const body = document.getElementById('cmpBody'); const W = body.clientWidth, Hh = body.clientHeight; const n = C.scenes.length || 1; const w = W / n;
   C.renderer.setClearColor(0x000000, 0); C.renderer.setScissor(0,0,W,Hh); C.renderer.setViewport(0,0,W,Hh); C.renderer.clear();
+  const dt = Math.min(clock.getDelta(), .1);
   C.scenes.forEach((s, i) => {
+    if (s.model && s.model.rig && C.playing) s.model.rig.mixer.update(dt * C.speed);
     if (s.model && C.auto) s.model.root.rotation.y += 0.006;
     C.renderer.setViewport(i*w, 0, w, Hh); C.renderer.setScissor(i*w, 0, w, Hh);
     C.renderer.render(s.scene, C.camera);
@@ -427,8 +480,20 @@ window.V3C = {
     const hs = C.scenes.filter(x=>x.model).map(x=>x.model.h); const base = Math.max(...hs);
     C.scenes.forEach(x=>x.base = base);
     const ry = C.scenes.find(x=>x.model && x!==s)?.model.root.rotation.y || 0; s.model.root.rotation.y = ry;
-    cmpFrame(); return s.model.mats;
+    cmpFrame();
+    if (s.model.rig && C.word) playClip(s.model.rig, clipFor(s.model.rig, C.word)).then(() => { if (C.word) V3C.sync(); });
+    return s.model.mats;
   },
+  // same animation on every panel ("idle", "run", … or '' for bind pose); restarts them together so they stay in step
+  async anim(word){
+    C.word = word;
+    const res = await Promise.all(C.scenes.map(s => s.model && s.model.rig ? playClip(s.model.rig, clipFor(s.model.rig, word)) : null));
+    V3C.sync(); return res;
+  },
+  sync(){ C.scenes.forEach(s => { const a = s.model && s.model.rig && s.model.rig.action; if (a) a.time = 0; }); },
+  play(v){ C.playing = v; }, speed(x){ C.speed = x; },
+  get state(){ return {playing: C.playing, speed: C.speed, word: C.word}; },
+  words(){ const set = new Set(); C.scenes.forEach(s => (s.model && s.model.rig ? s.model.rig.clips : []).forEach(c => set.add(c.name.split(' ')[0].replace(/\d+$/, '')))); return [...set]; },
   close(){ document.getElementById('cmpBg').classList.remove('show'); cancelAnimationFrame(C.raf); },
   setAuto(v){ C.auto = v; },
   setNormalize(v){ C.normalize = v; cmpFrame(); },
@@ -438,6 +503,11 @@ window.V3D = {
   show(){ init(); document.getElementById('v3dBg').classList.add('show'); resize(); cancelAnimationFrame(raf); loop(); },
   hide(){ document.getElementById('v3dBg').classList.remove('show'); cancelAnimationFrame(raf); },
   build, setAuto(v){ autoRotate = v; }, get auto(){ return autoRotate; },
+  play(i){ return playClip(rig, i); }, pause(v){ playing = !v; }, speed(x){ speed = x; },
+  seek(t){ if (rig && rig.action){ rig.action.time = t; rig.mixer.update(0); } },
+  get anim(){ return {has: !!rig, clip: rig ? rig.cur : -1, playing, speed, time: rig && rig.action ? rig.action.time : 0,
+                      duration: rig && rig.action ? rig.action.getClip().duration : 0}; },
+  defaultClip(){ return clipFor(rig, 'idle') >= 0 ? clipFor(rig, 'idle') : (rig && rig.clips.length ? 0 : -1); },
   reset(){ if(root) root.rotation.y = 0; }
 };
 </script>
@@ -989,7 +1059,19 @@ async function openCompare(){
     }catch(e){ document.getElementById('cm'+i).textContent = 'Failed: '+e; }
   }));
   document.getElementById('cmpSub').textContent = items.length + ' models' + (champs.size>1?' · different champions':'');
+  renderCmpAnim();
 }
+const CMP_WORDS = ['idle','run','attack','crit','spell1','spell2','spell3','spell4','dance','laugh','joke','taunt','recall','death'];
+function renderCmpAnim(){
+  const have = new Set(V3C.words()), st = V3C.state;
+  const words = CMP_WORDS.filter(w => have.has(w) || [...have].some(h => h.startsWith(w)));
+  document.getElementById('cmpAnim').innerHTML = `<option value="">Bind pose</option>` + words.map(w => `<option value="${w}" ${st.word===w?'selected':''}>${w[0].toUpperCase()+w.slice(1).replace(/(\d)/,' $1')}</option>`).join('');
+  document.getElementById('cmpPlay').textContent = st.playing ? '⏸' : '▶';
+  document.getElementById('cmpPlay').style.display = st.word ? '' : 'none';
+  document.getElementById('cmpSpeed').innerHTML = st.word ? [.25,.5,1].map(x=>`<button class="${st.speed===x?'on':''}" onclick="V3C.speed(${x});renderCmpAnim()">${x===1?'1×':x+'×'}</button>`).join('') : '';
+}
+async function cmpAnim(w){ await V3C.anim(w); V3C.play(true); renderCmpAnim(); }
+function cmpPlay(){ V3C.play(!V3C.state.playing); renderCmpAnim(); }
 function cmpCellFooter(it, m){
   const src = (k,v)=> v ? `<span class="chip ${v==='mod'?'mod':''}">${k}: ${v==='mod'?'mod':'original'}</span>` : '';
   const mod = it.id ? anyMod(it.id) : null;
@@ -1029,10 +1111,10 @@ async function doDelete(ids){
 function closeCompare(){ V3C.close(); S.cmp = []; renderTray(); renderMain(); }
 
 // ---------- 3D viewer
-const V = {req:null, model:null, mats:null, mode:'mod'};
+const V = {req:null, model:null, mats:null, mode:'mod', clip:null, speed:1, animErr:null};
 async function open3D(req){
   if (!window.V3D){ toast('3D engine is still loading (needs internet the first time) - try again in a second.','bad'); return; }
-  V.req = req; V.mode = req.id ? 'mod' : 'orig';
+  V.req = req; V.mode = req.id ? 'mod' : 'orig'; V.clip = null; V.model = null;
   V3D.show(); await load3D();
 }
 async function load3D(){
@@ -1044,10 +1126,35 @@ async function load3D(){
   try{
     const m = await api(url);
     if (m.error){ msg.textContent = m.error; V.model=null; renderSide3D(); return; }
+    const prev = V.model && V.clip >= 0 && V.model.anims ? (V.model.anims[V.clip]||{}).name : null;
     V.model = m; V.mats = V3D.build(m); msg.style.display='none';
+    // keep the same animation when flipping between "with this mod" and "original"; otherwise start on idle
+    const same = prev && m.anims ? m.anims.findIndex(a => a.name === prev) : -1;
+    V.clip = V.clip === -1 && V.model ? -1 : (same >= 0 ? same : V3D.defaultClip());
+    renderSide3D(); V.animErr = await V3D.play(V.clip);
   }catch(e){ msg.textContent = 'Failed to load: '+e; }
   renderSide3D();
 }
+async function pickClip(i){ V.clip = i; V.animErr = null; renderSide3D(); V.animErr = await V3D.play(i); V3D.pause(false); renderSide3D(); }
+function togglePlay(){ const a = V3D.anim; V3D.pause(a.playing); renderSide3D(); }
+function setSpeed(x){ V3D.speed(x); V.speed = x; renderSide3D(); }
+function animBlock(m){
+  if (!m) return '';
+  if (!m.rig) return `<div class="sub" style="font-size:11.5px">This model has no skeleton, so it's shown in its bind pose.</div>`;
+  const a = V3D.anim, cs = m.anims || [];
+  if (!cs.length) return `<div><div class="sec-label" style="padding:0 0 6px">Animation</div><div class="sub" style="font-size:11.5px">No animations found for this skin - shown in its bind pose.</div></div>`;
+  const sp = V.speed || 1;
+  return `<div class="anim"><div class="sec-label" style="padding:0 0 6px">Animation</div>
+    <select style="width:100%" onchange="pickClip(+this.value)"><option value="-1" ${V.clip<0?'selected':''}>Bind pose (no animation)</option>
+      ${cs.map((c,i)=>`<option value="${i}" ${i===V.clip?'selected':''}>${esc(c.name)}${c.mod?' · from mod':''}</option>`).join('')}</select>
+    ${V.clip>=0?`<div class="anim-ctl"><button class="btn small" onclick="togglePlay()">${a.playing?'⏸ Pause':'▶ Play'}</button>
+      <input type="range" id="animScrub" min="0" max="1000" value="0" oninput="V3D.pause(true);V3D.seek(this.value/1000*V3D.anim.duration)" onchange="renderSide3D()">
+      <div class="seg mini">${[.25,.5,1].map(x=>`<button class="${sp===x?'on':''}" onclick="setSpeed(${x})">${x===1?'1×':x+'×'}</button>`).join('')}</div></div>`:''}
+    ${V.animErr?`<div class="note">${esc(V.animErr)}</div>`:''}
+    <div class="sub" style="font-size:11px;margin-top:4px">The skin's real in-game animations. Twisted bones or stretched parts here will look the same in game.</div></div>`;
+}
+setInterval(() => { const el = document.getElementById('animScrub'); if (!el || !document.getElementById('v3dBg').classList.contains('show')) return;
+  const a = V3D.anim; if (a.duration && document.activeElement !== el) el.value = Math.round((a.time % a.duration) / a.duration * 1000); }, 100);
 function renderSide3D(){
   const r = V.req, m = V.model; const mod = r.id ? anyMod(r.id) : null;
   const champ = S.champs[(m&&m.champ) || r.champ || (mod&&mod.champ)];
@@ -1061,9 +1168,10 @@ function renderSide3D(){
     ${m&&m.notes.length?m.notes.map(n=>`<div class="note">${esc(n)}</div>`).join(''):''}
     ${m?`<div><div class="sec-label" style="padding:0 0 6px">Parts</div><div class="parts">${m.submeshes.map((s,i)=>`<label><input type="checkbox" ${!s.hidden?'checked':''} onchange="V.mats[${i}].visible=this.checked"> ${esc(s.name)} <span>${s.hidden?'hidden in game':''}</span></label>`).join('')}</div></div>`:''}
     <div>${cmpBtn(r.id?{id:r.id}:{champ:r.champ, skin:r.skin}, false)} ${S.cmp.length>=2?`<button class="btn gold" onclick="V3D.hide();openCompare()">Compare ${S.cmp.length}</button>`:''}</div>
+    ${animBlock(m)}
     <label style="display:flex;gap:8px;align-items:center;font-size:12.5px"><input type="checkbox" id="v3dAuto" ${V3D.auto?'checked':''} onchange="V3D.setAuto(this.checked)"> Auto-rotate</label>
     ${m?`<div class="sub" style="font-size:11px;word-break:break-all">Mesh: ${esc(m.mesh_path||'')}</div>`:''}
-    <div class="sub" style="font-size:11px">Shown in bind pose (no animation). Effects/particles aren't rendered.</div>`;
+    <div class="sub" style="font-size:11px">Effects/particles and special shaders aren't rendered.</div>`;
 }
 window.V3D_sync = () => { const c=document.getElementById('v3dAuto'); if(c) c.checked=false; };
 async function setGameDir(){

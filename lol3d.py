@@ -10,6 +10,7 @@ Mod files are layered on top of the game's own files, exactly like the game does
 when the mod is enabled, so the viewer shows what you'd actually see in game.
 """
 import os, io, re, struct, zlib, gzip, zipfile, base64, threading, math
+from array import array
 
 try:
     import zstandard as _zstd
@@ -1086,6 +1087,7 @@ def build_model(champ_id, skin_num, game_dir=None, mod_path=None):
         return k, src
 
     mesh = parse_skn(skn) if skn else None
+    mod_mesh_fallback = False
     used_mod = bin_src == "mod" or (skn_path and layers.source_of(skn_path) == "mod")
     default_key = default_src = None
     subs = []
@@ -1122,6 +1124,7 @@ def build_model(champ_id, skin_num, game_dir=None, mod_path=None):
                 return (slot in nm, len(item[1]))
             h, d = max(skns, key=skn_rank)
             mesh = parse_skn(d); skn_path = name_of(h) or f"<mod mesh {h:016x}>"; mesh_src = "mod"
+            skn = d; mod_mesh_fallback = True
             good = [(h2, d2) for h2, d2 in texs if not BAD_TEX.search(name_of(h2) or "")]
             good.sort(key=lambda x: (("tx_cm" in (name_of(x[0]) or "").lower()), len(x[1])), reverse=True)
             def tex_for(subname):
@@ -1168,6 +1171,7 @@ def build_model(champ_id, skin_num, game_dir=None, mod_path=None):
     if mesh is None:
         raise RuntimeError("Couldn't find a 3D mesh for this skin")
 
+    skin, anim = _model_skin(layers, bins, smp, skn, skn_path, mod_mesh_fallback, champ_id, skin_num, notes)
     sources = {"mesh": mesh_src, "skin_data": bin_src,
                "texture": "mod" if any(t and layers.source_of(int(t, 16)) == "mod" for t in [x["tex"] for x in subs]) or
                           (mesh_src == "mod" and not gw) else (default_src or "game")}
@@ -1180,7 +1184,68 @@ def build_model(champ_id, skin_num, game_dir=None, mod_path=None):
         "mesh_path": skn_path if not isinstance(skn_path, int) else (name_of(skn_path) or f"{skn_path:016x}"),
         "texture_path": tex_path if not isinstance(tex_path, int) else (name_of(tex_path) or f"{tex_path:016x}"),
     }
+    if skin:
+        model["rig"] = skin
+        model["anims"] = [{"name": nm, "mod": layers.source_of(k) == "mod"} for nm, k in anim["clips"]]
+        model["_anim"] = anim
     return model, textures
+
+
+def _model_skin(layers, bins, smp, skn, skn_path, mod_mesh_fallback, champ_id, skin_num, notes):
+    """Skinning data for the viewer + what the animation endpoint needs later. (None, None) when the mesh can't animate."""
+    if not skn:
+        return None, None
+    skl_path = smp.get(H["skeleton"]) if smp else None
+    skl = None
+    if mod_mesh_fallback:
+        mod_src = dict(layers.sources).get("mod", {})
+        stem = os.path.splitext(str(skn_path))[0].lower()
+        found = []
+        for h, g in list(mod_src.items()):
+            nm = (name_of(h) or "").lower()
+            if nm.endswith(".skl") or (not nm and h != path_hash(str(skn_path))):
+                try:
+                    d = g()
+                except Exception:
+                    continue
+                if len(d) > 12 and struct.unpack_from("<I", d, 4)[0] == 0x22FD4FC3:
+                    found.append((nm.startswith(stem), d))
+        if found:
+            skl = max(found, key=lambda x: x[0])[1]
+    if skl is None and skl_path:
+        skl = layers.get(skl_path)
+    if skl is None:
+        c = champ_id.lower()
+        for p in (f"assets/characters/{c}/skins/skin{skin_num:02d}/{c}_skin{skin_num:02d}.skl", f"assets/characters/{c}/skins/base/{c}.skl"):
+            skl = layers.get(p)
+            if skl:
+                break
+    if not skl:
+        notes.append("No skeleton found - animations can't be played for this model")
+        return None, None
+    try:
+        joints, infl = skl_bind(skl)
+        idx, wts = skn_skin_attrs(skn, infl, len(joints))
+    except Exception as e:
+        notes.append(f"Animations unavailable ({e})")
+        return None, None
+    ids = {j["id"]: i for i, j in enumerate(joints)}
+    skin = {"joints": [{"n": j["name"], "p": ids.get(j["parent"], -1), "t": j["t"], "r": j["r"], "s": j["s"],
+                        "it": j["it"], "ir": j["ir"], "is": j["is"]} for j in joints],
+            "idx": base64.b64encode(idx).decode(), "w": base64.b64encode(wts).decode()}
+    try:
+        clips = list_clips(layers, bins, champ_id, skin_num)
+    except Exception:
+        clips = []
+    return skin, {"layers": layers, "clips": clips, "joints": joints}
+
+def clip_data(anim, i):
+    nm, key = anim["clips"][i]
+    d = anim["layers"].get(key)
+    if not d:
+        raise RuntimeError("animation file not found")
+    out = anim_payload(d, anim["joints"]); out["name"] = nm
+    return out
 
 
 # ------------------------------------------------------------------ which skins does a mod really change?
@@ -1265,3 +1330,246 @@ def match_skins(refs, mod_hashes):
         if sc:
             out[n] = (sc, 3 in kinds, 2 in kinds)
     return out
+
+
+# ------------------------------------------------------------------ animation playback (.anm) for the 3D viewer
+def elf_hash(s):
+    h = 0
+    for c in s.lower().encode("latin-1", "replace"):
+        h = ((h << 4) + c) & 0xFFFFFFFF
+        hi = h & 0xF0000000
+        if hi:
+            h ^= hi >> 24
+        h &= ~hi & 0xFFFFFFFF
+    return h
+
+def skl_bind(data):
+    """Per joint: local bind transform (t, r, s) + the inverse bind matrix parts, in file order. Modern SKL only."""
+    size, fmt, ver = struct.unpack_from("<III", data, 0)
+    if fmt != 0x22FD4FC3:
+        raise ValueError("legacy skeleton format" if data[:8] == b"r3d2sklt" else "not a skeleton")
+    flags, jc, ic = struct.unpack_from("<HHI", data, 12)
+    jo, jio, io = struct.unpack_from("<3i", data, 20)
+    out = []
+    for i in range(jc):
+        o = jo + i * 100
+        jf, jid, par, _pad, nh, rad = struct.unpack_from("<HhhHIf", data, o)
+        lt = struct.unpack_from("<3f", data, o + 16); ls = struct.unpack_from("<3f", data, o + 28)
+        lr = struct.unpack_from("<4f", data, o + 40)
+        it = struct.unpack_from("<3f", data, o + 56); isc = struct.unpack_from("<3f", data, o + 68)
+        ir = struct.unpack_from("<4f", data, o + 80)
+        noff = struct.unpack_from("<i", data, o + 96)[0]
+        ns = o + 96 + noff
+        try:
+            name = data[ns:data.index(b"\0", ns)].decode("latin-1")
+        except Exception:
+            name = ""
+        out.append({"id": jid, "parent": par, "hash": nh, "elf": elf_hash(name), "name": name,
+                    "t": lt, "r": lr, "s": ls, "it": it, "ir": ir, "is": isc})
+    infl = list(struct.unpack_from(f"<{ic}H", data, io)) if ic else []
+    return out, infl
+
+def skn_skin_attrs(data, infl, njoints):
+    """Per-vertex joint indices (4 x u16, skeleton order) + weights (4 x f32), aligned with parse_skn's vertices."""
+    info = skn_skinning(data)
+    p, st, n = info["start"], info["stride"], info["count"]
+    idx = array("H"); wts = array("f")
+    nin = len(infl)
+    for i in range(n):
+        o = p + i * st
+        b = data[o + 12:o + 16]
+        w = struct.unpack_from("<4f", data, o + 16)
+        for k in range(4):
+            j = infl[b[k]] if b[k] < nin else 0
+            idx.append(j if 0 <= j < njoints else 0)
+        tot = sum(w) or 1.0
+        wts.extend(x / tot for x in w)
+    return idx.tobytes(), wts.tobytes()
+
+_S2 = 1.41421356237
+
+def _quat48(a, b, c):
+    bits = a | (b << 16) | (c << 32)
+    mi = (bits >> 45) & 3
+    va = (bits >> 30) & 0x7FFF; vb = (bits >> 15) & 0x7FFF; vc = bits & 0x7FFF
+    x = va / 32767.0 * _S2 - 1 / _S2; y = vb / 32767.0 * _S2 - 1 / _S2; z = vc / 32767.0 * _S2 - 1 / _S2
+    d = math.sqrt(max(0.0, 1 - (x * x + y * y + z * z)))
+    return ((d, x, y, z), (x, d, y, z), (x, y, d, z), (x, y, z, d))[mi]
+
+def parse_anm(data):
+    """League animation -> {"duration": sec, "tracks": {joint_hash: {"t": [(time, xyz)], "r": [(time, xyzw)], "s": [...]}}}.
+    Handles r3d2anmd v3 (legacy), v4/v5 (uncompressed) and r3d2canm (compressed)."""
+    magic = data[:8]; ver = struct.unpack_from("<I", data, 8)[0]
+    tracks = {}
+    def tr(h):
+        t = tracks.get(h)
+        if t is None:
+            t = tracks[h] = {"t": [], "r": [], "s": []}
+        return t
+    if magic == b"r3d2anmd" and ver in (4, 5):
+        tc, fc = struct.unpack_from("<ii", data, 28)
+        fdur = struct.unpack_from("<f", data, 36)[0]
+        if not (0 < fdur < 10):
+            fdur = 1 / 30
+        if ver == 5:
+            jho, ano, tmo, vpo, qpo, fro = struct.unpack_from("<6i", data, 40)
+            nv = (qpo - vpo) // 12; nq = (jho - qpo) // 6
+            vec = [struct.unpack_from("<3f", data, vpo + 12 + i * 12) for i in range(nv)]
+            quat = [_quat48(*struct.unpack_from("<3H", data, qpo + 12 + i * 6)) for i in range(nq)]
+            hashes = struct.unpack_from(f"<{tc}I", data, jho + 12)
+            p = fro + 12
+            for f in range(fc):
+                tm = f * fdur
+                for k in range(tc):
+                    ti, si, ri = struct.unpack_from("<3H", data, p); p += 6
+                    t = tr(hashes[k])
+                    if ti < nv: t["t"].append((tm, vec[ti]))
+                    if si < nv: t["s"].append((tm, vec[si]))
+                    if ri < nq: t["r"].append((tm, quat[ri]))
+        else:
+            tko, ano, tmo, vpo, qpo, fro = struct.unpack_from("<6i", data, 40)
+            nv = (qpo - vpo) // 12; nq = (fro - qpo) // 16
+            vec = [struct.unpack_from("<3f", data, vpo + 12 + i * 12) for i in range(nv)]
+            quat = [struct.unpack_from("<4f", data, qpo + 12 + i * 16) for i in range(nq)]
+            p = fro + 12
+            for f in range(fc):
+                tm = f * fdur
+                for k in range(tc):
+                    h, ti, si, ri, _ = struct.unpack_from("<I4H", data, p); p += 12
+                    t = tr(h)
+                    if ti < nv: t["t"].append((tm, vec[ti]))
+                    if si < nv: t["s"].append((tm, vec[si]))
+                    if ri < nq: t["r"].append((tm, quat[ri]))
+        return {"duration": max(fdur * (fc - 1), fdur), "tracks": tracks}
+    if magic == b"r3d2anmd" and ver in (1, 2, 3):
+        skl_id, tc, fc, fps = struct.unpack_from("<I3i", data, 12)
+        fdur = 1.0 / fps if fps > 0 else 1 / 30
+        p = 28
+        for _ in range(tc):
+            name = data[p:p + 32].split(b"\0")[0].decode("latin-1"); p += 36
+            t = tr(elf_hash(name))
+            for f in range(fc):
+                q = struct.unpack_from("<7f", data, p); p += 28
+                t["r"].append((f * fdur, q[:4])); t["t"].append((f * fdur, q[4:]))
+        return {"duration": max(fdur * (fc - 1), fdur), "tracks": tracks}
+    if magic == b"r3d2canm":
+        rsz, ftok, fl, jc, fc, jcc = struct.unpack_from("<6i", data, 12)
+        dur, fps = struct.unpack_from("<2f", data, 36)
+        tmin = struct.unpack_from("<3f", data, 68); tmax = struct.unpack_from("<3f", data, 80)
+        smin = struct.unpack_from("<3f", data, 92); smax = struct.unpack_from("<3f", data, 104)
+        fro, jco, jho = struct.unpack_from("<3i", data, 116)
+        hashes = struct.unpack_from(f"<{jc}I", data, jho + 12)
+        tsc = [tmax[i] - tmin[i] for i in range(3)]; ssc = [smax[i] - smin[i] for i in range(3)]
+        for tm, ji, a, b, c in struct.iter_unpack("<5H", data[fro + 12:fro + 12 + fc * 10]):
+            j = ji & 0x3FFF; typ = ji >> 14
+            if j >= jc:
+                continue
+            t = tr(hashes[j]); time = tm / 65535.0 * dur
+            if typ == 0:
+                t["r"].append((time, _quat48(a, b, c)))
+            elif typ == 1:
+                t["t"].append((time, (tmin[0] + tsc[0] * a / 65535.0, tmin[1] + tsc[1] * b / 65535.0, tmin[2] + tsc[2] * c / 65535.0)))
+            elif typ == 2:
+                t["s"].append((time, (smin[0] + ssc[0] * a / 65535.0, smin[1] + ssc[1] * b / 65535.0, smin[2] + ssc[2] * c / 65535.0)))
+        for t in tracks.values():
+            for k in ("t", "r", "s"):
+                t[k].sort(key=lambda x: x[0])
+        return {"duration": dur, "tracks": tracks}
+    raise ValueError(f"unsupported animation format ({magic[:8]!r} v{ver})")
+
+def anim_payload(data, joints):
+    """parse_anm + map tracks onto skeleton joints -> compact JSON for three.js KeyframeTracks."""
+    a = parse_anm(data)
+    by_hash = {}
+    for i, j in enumerate(joints):
+        by_hash.setdefault(j["hash"], i); by_hash.setdefault(j["elf"], i)
+    out = []; matched = 0
+    for h, t in a["tracks"].items():
+        i = by_hash.get(h)
+        if i is None:
+            continue
+        matched += 1
+        e = {"j": i}
+        for k, n in (("t", 3), ("r", 4), ("s", 3)):
+            keys = t[k]
+            if not keys:
+                continue
+            # drop keys that repeat the previous value (static channels are common)
+            times = array("f"); vals = array("f")
+            for idx, (tm, v) in enumerate(keys):
+                if 0 < idx < len(keys) - 1 and v == keys[idx - 1][1] and v == keys[idx + 1][1]:
+                    continue
+                times.append(tm); vals.extend(v)
+            e[k] = [base64.b64encode(times.tobytes()).decode(), base64.b64encode(vals.tobytes()).decode()]
+        out.append(e)
+    return {"duration": a["duration"], "tracks": out, "matched": matched, "total": len(a["tracks"])}
+
+CLIP_WORDS = ["idle", "run", "attack", "crit", "spell", "dance", "laugh", "joke", "taunt", "recall", "death", "channel",
+              "spawn", "respawn", "homeguard", "turn", "levelup", "emote", "victory", "stun", "knockup", "passive", "ult",
+              "walk", "dash", "jump", "cast", "idle_in", "run_in", "run_haste", "run_fast", "run_slow", "channel_wndup",
+              "recall_winddown", "attack_crit"]
+_CLIP_NAMES = None
+
+def clip_name(h):
+    global _CLIP_NAMES
+    if _CLIP_NAMES is None:
+        m = {}
+        for b in CLIP_WORDS:
+            for n in ["", "1", "2", "3", "4", "5", "6"]:
+                for suf in ["", "_base", "_in", "_out", "_loop", "_start", "_end", "_a", "_b", "_c", "a", "b", "c", "_run"]:
+                    for pre in ["", "spell1_", "spell2_", "spell3_", "spell4_"]:
+                        nm = pre + b + n + suf
+                        m.setdefault(fnv1a(nm), nm)
+        _CLIP_NAMES = m
+    return _CLIP_NAMES.get(h)
+
+_CLIP_ORDER = ["idle", "run", "attack", "crit", "spell", "dance", "laugh", "joke", "taunt", "recall", "channel", "death"]
+
+def list_clips(layers, bins, champ_id, skin_num):
+    """[(label, file_key)] for the skin's animations, read from its animation graph (mod's copy first)."""
+    c = champ_id.lower()
+    cands = [l for b in bins[:1] for l in b.linked if "/animations/" in l.lower()]
+    cands += [f"data/characters/{c}/animations/skin{skin_num}.bin", f"data/characters/{c}/animations/skin0.bin"]
+    H_MAP, H_RES, H_PATH = fnv1a("mClipDataMap"), fnv1a("mAnimationResourceData"), fnv1a("mAnimationFilePath")
+    for p in cands:
+        raw = layers.get(p)
+        if not raw:
+            continue
+        try:
+            b = BinReader(raw)
+        except Exception:
+            continue
+        clips, seen = [], set()
+        for _n, (_ct, f) in b.entries.items():
+            cm = f.get(H_MAP)
+            if not isinstance(cm, dict):
+                continue
+            for k, v in cm.items():
+                r = v.get(H_RES) if isinstance(v, dict) else None
+                fp = r.get(H_PATH) if isinstance(r, dict) else None
+                if fp is None or fp == "":
+                    continue
+                key = fp if isinstance(fp, int) else path_hash(fp)
+                if key in seen:
+                    continue
+                seen.add(key)
+                nm = clip_name(k) if isinstance(k, int) else str(k)
+                if not nm and isinstance(fp, str):
+                    nm = os.path.splitext(os.path.basename(fp))[0]
+                    nm = re.sub(rf"^{re.escape(c)}_", "", nm.lower())
+                clips.append((nm, key))
+        if clips:
+            def rank(x):
+                nm = x[0] or "~"
+                for i, w in enumerate(_CLIP_ORDER):
+                    if nm.startswith(w) or nm.split("_", 1)[-1].startswith(w):
+                        return (i, nm)
+                return (len(_CLIP_ORDER), nm)
+            clips.sort(key=rank)
+            n = 0; out = []
+            for nm, key in clips:
+                if not nm:
+                    n += 1; nm = f"other {n}"
+                out.append((nm.replace("_", " "), key))
+            return out
+    return []

@@ -189,6 +189,58 @@ def twisted_bones_detect_and_repair():
     shifted = _skn([((p[0] + 30, p[1] + 25, p[2]), b) for p, b in pts])
     assert lol3d.rig_verdict(shifted, skl, game, skl)["verdict"] == "offset"
 
+def _q48(x, y, z, w):
+    """Encode a unit quaternion the way League's compressed animations do (largest component dropped)."""
+    q = [x, y, z, w]; mi = max(range(4), key=lambda i: abs(q[i]))
+    if q[mi] < 0: q = [-v for v in q]
+    rest = [q[i] for i in range(4) if i != mi]
+    v = [max(0, min(32767, round((c + 1 / 2 ** .5) / 2 ** .5 * 32767))) for c in rest]
+    bits = (mi << 45) | (v[0] << 30) | (v[1] << 15) | v[2]
+    return bits & 0xFFFF, (bits >> 16) & 0xFFFF, (bits >> 32) & 0xFFFF
+
+@test
+def animation_formats():
+    """The three League animation formats decode to the same motion, mapped onto skeleton joints."""
+    import math
+    J = [(lol3d.elf_hash("j0"), -1, (0, 0, 0)), (lol3d.elf_hash("j1"), 0, (0, 100, 0))]
+    joints, infl = lol3d.skl_bind(_skl(J))
+    assert [j["name"] for j in joints] == ["j0", "j1"] and joints[1]["parent"] == 0
+    h = math.sin(math.pi / 8); c = math.cos(math.pi / 8)   # 45 degrees around Y
+    keys = [(0.0, (0, 0, 0, 1), (0, 100, 0)), (1.0, (0, h, 0, c), (0, 120, 0))]
+    # r3d2anmd v3 (legacy): named tracks, full floats
+    v3 = bytearray(b"r3d2anmd" + struct.pack("<I", 3) + struct.pack("<I3i", 0, 1, 2, 1))
+    v3 += b"j1".ljust(32, b"\0") + struct.pack("<I", 0)
+    for _, q, t in keys:
+        v3 += struct.pack("<7f", *q, *t)
+    # r3d2anmd v5: palettes + 48-bit quaternions
+    vec = [keys[0][2], keys[1][2], (1, 1, 1)]; qs = [_q48(*keys[0][1]), _q48(*keys[1][1])]
+    hdr = 12 + 28 + 24 + 12
+    vpo = hdr; qpo = vpo + 12 * len(vec); jho = qpo + 6 * len(qs); fro = jho + 4
+    v5 = bytearray(b"r3d2anmd" + struct.pack("<I", 5) + struct.pack("<6if", 0, 0, 0, 0, 1, 2, 1.0))
+    v5 += struct.pack("<6i", jho - 12, 0, 0, vpo - 12, qpo - 12, fro - 12) + b"\0" * 12
+    for v in vec: v5 += struct.pack("<3f", *v)
+    for q in qs: v5 += struct.pack("<3H", *q)
+    v5 += struct.pack("<I", J[1][0])
+    v5 += struct.pack("<3H", 0, 2, 0) + struct.pack("<3H", 1, 2, 1)
+    # r3d2canm: per-channel keys
+    frames = []
+    for i, (tm, q, t) in enumerate(keys):
+        ti = round(tm * 65535)
+        frames.append(struct.pack("<5H", ti, 1 | (0 << 14), *_q48(*q)))
+        frames.append(struct.pack("<5H", ti, 1 | (1 << 14), 0, round((t[1] - 0) / 200 * 65535), 0))
+    fro = 128
+    cn = bytearray(b"r3d2canm" + struct.pack("<I", 1) + struct.pack("<6i", 0, 0, 0, 2, len(frames), 0) + struct.pack("<2f", 1.0, 30))
+    cn += b"\0" * 24 + struct.pack("<6f", 0, 0, 0, 0, 200, 0) + struct.pack("<6f", 1, 1, 1, 1, 1, 1)
+    cn += struct.pack("<3i", fro - 12, 0, fro + 10 * len(frames) - 12) + b"".join(frames) + struct.pack("<2I", J[0][0], J[1][0])
+    for data in (bytes(v3), bytes(v5), bytes(cn)):
+        a = lol3d.parse_anm(data)
+        t = a["tracks"][J[1][0]]
+        assert abs(t["t"][-1][1][1] - 120) < 0.01, (data[:12], t["t"])
+        q = t["r"][-1][1]
+        assert abs(abs(q[1]) - h) < 0.001 and abs(abs(q[3]) - c) < 0.001, (data[:12], q)
+        p = lol3d.anim_payload(data, joints)
+        assert p["matched"] >= 1 and any(e["j"] == 1 and "r" in e for e in p["tracks"]), p
+
 @test
 def skn_parse():
     m = lol3d.parse_skn(fixtures.skn_bytes())
