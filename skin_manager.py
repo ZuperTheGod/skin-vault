@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -837,6 +837,20 @@ def check_bin_types(path, rec, col):
         rec["issues"].append({"level": "info", "msg": f"Uses {simple} skin setting(s) from an older patch. LTK Manager updates these "
                               "automatically when you add the mod, or Auto-fix can update the file itself."})
 
+def check_compat(path, rec):
+    """Game compatibility check: bones effects attach to, broken models, missing animations/files, bad textures."""
+    champ, skin = rec.get("champ"), rec.get("applies_to")
+    if not champ or skin is None or rec.get("type") in ("Voice", "Loading screen") or path.lower().endswith((".rar", ".7z")):
+        return
+    try:
+        found = lol3d.compat_check(champ, int(skin), game_dir(), path)
+    except Exception as e:
+        log("compatibility check failed", os.path.basename(path), e)
+        return
+    rec["compat"] = [f["code"] for f in found]
+    for f in found:
+        rec["issues"].append({"level": f["level"], "msg": f["msg"]})
+
 def check_rig(path, rec):
     """Flag models whose parts follow the wrong bones (twist / stretch in game) or that sit off their skeleton."""
     champ, skin = rec.get("champ"), rec.get("applies_to")
@@ -908,6 +922,7 @@ def analyze_path(path, context_champ=None):
     rec = finalize(col, display, context_champ)
     check_bin_types(path, rec, col)
     check_rig(path, rec)
+    check_compat(path, rec)
     if wrapped:
         rec["wrapped"] = wrapped
         rec["issues"].append({"level": "info", "msg": f"Zip wrapping {os.path.basename(wrapped)} - Organize/Import unwraps it automatically"})
@@ -930,7 +945,7 @@ STATE = {"status": "idle", "progress": 0, "total": 0, "current": "", "last_scan"
          "mods": {}, "folders": {}, "loose": [], "events": [], "scan_seconds": 0}
 LOCK = threading.RLock()
 CACHE_PATH = os.path.join(DATA_DIR, "scan_cache.json")
-SCAN_VERSION = 14
+SCAN_VERSION = 15
 
 def load_cache():
     try:

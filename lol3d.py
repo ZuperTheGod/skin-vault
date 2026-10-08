@@ -1771,3 +1771,206 @@ def rename_parts(skn, fixes):
         if n in fixes:
             d[o:o + 64] = fixes[n].encode("latin-1")[:63].ljust(64, b"\0")
     return bytes(d)
+
+
+# ------------------------------------------------------------------ game compatibility check
+# The game ties a skin's files together by name, hash, index and path. Each check below follows one of those links
+# from the game's side to the mod's side and reports the ones that no longer meet.
+_SKIP_NAME_FIELDS = {fnv1a(k) for k in ("submesh", "initialSubmeshToHide", "initialSubmeshAvatarToHide",
+                                        "initialSubmeshShadowsToHide", "initialSubmeshMouseOversToHide")}
+_GAME_REFS = {}
+
+def _walk_values(x, field, out):
+    if isinstance(x, dict):
+        for k, v in x.items():
+            if k != "__class__":
+                _walk_values(v, k, out)
+    elif isinstance(x, list):
+        for v in x:
+            _walk_values(v, field, out)
+    else:
+        out.append((field, x))
+
+def _skin_bins(getter, champ_id, skin_num, limit=40):
+    raw = getter(f"data/characters/{champ_id.lower()}/skins/skin{skin_num}.bin")
+    if not raw:
+        return []
+    bins = [BinReader(raw)]
+    for lk in bins[0].linked[:limit]:
+        d = getter(lk)
+        if d:
+            try:
+                bins.append(BinReader(d))
+            except Exception:
+                pass
+    return bins
+
+def joint_refs(bins, joints):
+    """Joints the skin's game data refers to by name: {joint name: "effects"|"physics"}.
+    Strings (effects, health bar, attachments) and FNV-1a name hashes (springs, dynamics, emitters) both count."""
+    by_name = {j["name"].lower(): j["name"] for j in joints if j["name"]}
+    by_fnv = {fnv1a(j["name"]): j["name"] for j in joints if j["name"]}
+    out = {}
+    for b in bins:
+        vals = []
+        for _n, (_ct, f) in b.entries.items():
+            _walk_values(f, None, vals)
+        for field, v in vals:
+            if field in _SKIP_NAME_FIELDS:
+                continue
+            if isinstance(v, str):
+                n = by_name.get(v.lower())
+                if n:
+                    out[n] = "effects"
+            elif isinstance(v, int) and not isinstance(v, bool) and v in by_fnv:
+                out.setdefault(by_fnv[v], "physics")
+    return out
+
+def _tex_problem(d):
+    if d[:4] != b"TEX\0" or len(d) < 12:
+        return None
+    w, h = struct.unpack_from("<HH", d, 4)
+    fmt, mips = d[9], d[11] & 1
+    block = {10: 8, 12: 16}.get(fmt)
+    if fmt not in (10, 12, 20):
+        return None
+    if not w or not h:
+        return "has a size of 0"
+    if block and (w % 4 or h % 4):
+        return f"is {w}x{h}; compressed textures must be a multiple of 4 on each side"
+    def lvl(ww, hh):
+        return max(1, (ww + 3) // 4) * max(1, (hh + 3) // 4) * block if block else ww * hh * 4
+    need = 0; ww, hh = w, h
+    while True:
+        need += lvl(ww, hh)
+        if not mips or (ww == 1 and hh == 1):
+            break
+        ww, hh = max(1, ww // 2), max(1, hh // 2)
+    if len(d) - 12 < need:
+        return "is cut short (the file is smaller than its size says) - it will look corrupted or not load"
+    return None
+
+def compat_check(champ_id, skin_num, game_dir, mod_path):
+    """[{level, code, msg}] - links between the mod's files and what the game expects that are broken."""
+    gw = game_wad(game_dir, champ_id)
+    if not gw:
+        return []
+    c = champ_id.lower()
+    mod = mod_layer(mod_path)
+    if not mod:
+        return []
+    layers = Layers(); layers.add_files(mod, "mod"); layers.add_wad(gw, "game")
+    gget = lambda p: gw.read(path_hash(p)) if (path_hash(p) if isinstance(p, str) else p) in gw.entries else None
+    out = []
+    key = (c, skin_num, game_dir)
+    if key not in _GAME_REFS:
+        try:
+            gbins = _skin_bins(gget, champ_id, skin_num)
+            gsmp, _ = find_skin_mesh(gbins)
+            gskl_p = gsmp.get(H["skeleton"]) if gsmp else None
+            gj = skl_bind(gget(gskl_p))[0] if gskl_p and gget(gskl_p) else []
+            _GAME_REFS[key] = {"bins": gbins, "skl": gskl_p, "skn": gsmp.get(H["simpleSkin"]) if gsmp else None,
+                               "refs": joint_refs(gbins, gj)}
+        except Exception:
+            _GAME_REFS[key] = None
+    g = _GAME_REFS[key]
+    if not g:
+        return []
+    mbins = _skin_bins(layers.get, champ_id, skin_num) if layers.source_of(f"data/characters/{c}/skins/skin{skin_num}.bin") == "mod" else g["bins"]
+    msmp, _ = find_skin_mesh(mbins)
+    skl_p = (msmp or {}).get(H["skeleton"]) or g["skl"]
+    skn_p = (msmp or {}).get(H["simpleSkin"]) or g["skn"]
+
+    # 1. bones the game attaches effects / health bar / physics to, missing from the mod's own skeleton
+    if skl_p and layers.source_of(skl_p) == "mod":
+        try:
+            have = {j["name"].lower() for j in skl_bind(layers.get(skl_p))[0]}
+            miss = {n: k for n, k in g["refs"].items() if n.lower() not in have}
+            fx = sorted(n for n, k in miss.items() if k == "effects")
+            ph = sorted(n for n, k in miss.items() if k == "physics")
+            if fx:
+                out.append({"level": "info", "code": "bones-effects", "msg":
+                            f"The mod's skeleton is missing {len(fx)} bone(s) the game attaches effects to "
+                            f"({', '.join(fx[:5])}{'…' if len(fx) > 5 else ''}). Effects tied to them (spell "
+                            "effects, the health bar, attached items) may show up at the feet or not at all."})
+            if ph:
+                out.append({"level": "info", "code": "bones-physics", "msg":
+                            f"The mod's skeleton is missing {len(ph)} bone(s) the game moves with physics "
+                            f"({', '.join(ph[:5])}{'…' if len(ph) > 5 else ''}), so hair/cape/tail sway won't work on those parts."})
+        except Exception:
+            pass
+
+    # 2. model sanity
+    if skn_p and layers.source_of(skn_p) == "mod":
+        try:
+            skn = layers.get(skn_p); m = parse_skn(skn)
+            idx = array("H"); idx.frombytes(m["indices"])
+            if idx and max(idx) >= m["vcount"]:
+                out.append({"level": "warn", "code": "mesh-indices", "msg":
+                            "The model points at vertices that don't exist - it will show spiky, stretched triangles or crash the game."})
+            pos = array("f"); pos.frombytes(m["positions"])
+            if any(v != v or abs(v) > 1e6 for v in pos):
+                out.append({"level": "warn", "code": "mesh-nan", "msg": "The model has broken (NaN/huge) vertex positions - parts will vanish or stretch to infinity."})
+            info = skn_skinning(skn); zero = 0
+            for i in range(0, info["count"], 3):
+                o = info["start"] + i * info["stride"]
+                if sum(struct.unpack_from("<4f", skn, o + 16)) < 0.01:
+                    zero += 1
+            if zero * 3 > info["count"] * 0.01:
+                out.append({"level": "warn", "code": "mesh-weights", "msg":
+                            "Part of the model isn't attached to any bone (zero weights) - in game it will collapse to the floor or the center."})
+        except Exception:
+            pass
+
+    # 3. animations the game will play that exist nowhere
+    try:
+        clips = list_clips(layers, mbins, champ_id, skin_num)
+        missing = [nm for nm, k in clips if layers.source_of(k) is None]
+        if missing and layers.source_of(anim_graph_path(layers, mbins, champ_id, skin_num) or "") == "mod":
+            out.append({"level": "warn", "code": "anims-missing", "msg":
+                        f"{len(missing)} animation(s) the mod's animation setup asks for don't exist ({', '.join(missing[:4])}"
+                        f"{'…' if len(missing) > 4 else ''}) - the champion will freeze or T-pose during those moves."})
+    except Exception:
+        pass
+
+    # 4. model / skeleton / textures the mod's own skin data points at that exist neither in the mod nor in the game
+    if layers.source_of(f"data/characters/{c}/skins/skin{skin_num}.bin") == "mod" and msmp:
+        try:
+            refs = [msmp.get(H["simpleSkin"]), msmp.get(H["skeleton"]), msmp.get(H["texture"]),
+                    material_texture(mbins, msmp[H["material"]]) if msmp.get(H["material"]) else None]
+            for o in msmp.get(H["materialOverride"]) or []:
+                if isinstance(o, dict):
+                    refs.append(o.get(H["texture"]) or (material_texture(mbins, o[H["material"]]) if o.get(H["material"]) else None))
+            gone = sorted({(r if isinstance(r, str) else (name_of(r) or f"{r:016x}")).split("/")[-1]
+                           for r in refs if r and layers.source_of(r) is None})
+            if gone:
+                out.append({"level": "warn", "code": "files-missing", "msg":
+                            f"The mod's skin data points at {len(gone)} model/texture file(s) that aren't in the mod or the game "
+                            f"({', '.join(gone[:4])}{'…' if len(gone) > 4 else ''}) - those parts will be invisible or untextured."})
+        except Exception:
+            pass
+
+    # 5. textures the game will refuse or show corrupted
+    bad = []
+    texs = set()
+    if msmp:
+        for t in [msmp.get(H["texture"]), material_texture(mbins, msmp[H["material"]]) if msmp.get(H["material"]) else None] + \
+                 [o.get(H["texture"]) or (material_texture(mbins, o[H["material"]]) if o.get(H["material"]) else None)
+                  for o in (msmp.get(H["materialOverride"]) or []) if isinstance(o, dict)]:
+            if t:
+                texs.add(t if isinstance(t, int) else path_hash(t))
+    for h in texs:                       # only the textures the skin actually draws with (reading every file is slow)
+        getf = mod.get(h)
+        if not getf:
+            continue
+        try:
+            d = getf()
+        except Exception:
+            continue
+        if d[:4] == b"TEX\0":
+            p = _tex_problem(d)
+            if p:
+                bad.append(f"{(name_of(h) or f'{h:016x}').split('/')[-1]} {p}")
+    if bad:
+        out.append({"level": "warn", "code": "tex-bad", "msg": "Broken texture(s): " + "; ".join(bad[:3]) + ("…" if len(bad) > 3 else "")})
+    return out

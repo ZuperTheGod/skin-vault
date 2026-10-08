@@ -280,6 +280,22 @@ def part_names_match_game_case():
     assert fixed == game and lol3d.parse_skn(fixed)["submeshes"][0]["name"] == "Body"
 
 @test
+def compatibility_checks():
+    """Game-compatibility building blocks: bones referenced by name/hash, and textures the game would reject."""
+    joints = [{"name": "Root"}, {"name": "C_Buffbone_Glb_Chest_Loc"}, {"name": "L_Hair1"}, {"name": "Head"}]
+    s = b"C_BUFFBONE_GLB_CHEST_LOC"
+    b = _prop([(lol3d.fnv1a("mBoneName"), 16, struct.pack("<H", len(s)) + s),
+               (lol3d.fnv1a("mJoint"), 7, struct.pack("<I", lol3d.fnv1a("L_Hair1"))),
+               (lol3d.fnv1a("submesh"), 16, struct.pack("<H", 4) + b"Head")])
+    refs = lol3d.joint_refs([lol3d.BinReader(b)], joints)
+    assert refs == {"C_Buffbone_Glb_Chest_Loc": "effects", "L_Hair1": "physics"}, refs   # submesh names don't count
+    tex = lambda w, h, fmt, mips, n: b"TEX\0" + struct.pack("<HHBBBB", w, h, 1, fmt, 0, mips) + b"\0" * n
+    assert lol3d._tex_problem(tex(64, 64, 12, 0, 64 * 64)) is None
+    assert "multiple of 4" in lol3d._tex_problem(tex(30, 64, 12, 0, 4096))
+    assert "cut short" in lol3d._tex_problem(tex(64, 64, 12, 1, 64 * 64))           # mip flag but no mips
+    assert lol3d._tex_problem(tex(4, 4, 10, 1, 8 + 8 + 8)) is None                     # 4x4, 2x2, 1x1 chain
+
+@test
 def skn_parse():
     m = lol3d.parse_skn(fixtures.skn_bytes())
     assert m["vcount"] == 3 and m["submeshes"][0]["name"] == "Body"
