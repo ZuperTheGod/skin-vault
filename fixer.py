@@ -148,7 +148,8 @@ def name_str(v):
     return lol3d.name_of(v) or f"{v:016x}"
 
 # ------------------------------------------------------------------ main
-def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path, info_suffix=" (fixed)", log=print):
+def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path, info_suffix=" (fixed)", log=print,
+            fix_masks=False):
     """Returns report dict. Raises on fatal problems."""
     lt = LtMAO(ltmao_root)
     report = {"steps": [], "mapped": [], "converted": 0, "bins_patched": 0, "warnings": []}
@@ -435,7 +436,8 @@ def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path,
             report["warnings"].append(f"Couldn't check the model's bones: {e}")
 
         try:
-            _fix_masks(cw, champ_id, slot, game_wad, report, step)
+            if fix_masks:          # experimental: only when asked for in the Fix dialog
+                _fix_masks(cw, champ_id, slot, game_wad, report, step)
         except Exception as e:
             report["warnings"].append(f"Couldn't check the animation masks: {e}")
 

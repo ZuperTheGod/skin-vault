@@ -1235,17 +1235,6 @@ def _model_skin(layers, bins, smp, skn, skn_path, mod_mesh_fallback, champ_id, s
     except Exception as e:
         notes.append(f"Animations unavailable ({e})")
         return None, None
-    try:
-        gsrc = dict(layers.sources).get("game")
-        if skl_path and layers.source_of(skl_path) == "mod" and gsrc is not None:
-            gget = lambda p: gsrc.get(path_hash(p))() if gsrc.get(path_hash(p)) else None
-            mr = skin_mask_check(layers, gget, champ_id, skin_num, skl_path, skl_path)
-            if mr:
-                notes.append(f"In game this will look worse than here: the mod's skeleton has {mr['misplaced']} joint(s) in a "
-                             "different order than the game's animation masks expect, so when the game blends animations "
-                             "(e.g. attacking while running) limbs jump around. 🦴 Fix bones can fix this.")
-    except Exception:
-        pass
     ids = {j["id"]: i for i, j in enumerate(joints)}
     skin = {"joints": [{"n": j["name"], "p": ids.get(j["parent"], -1), "t": j["t"], "r": j["r"], "s": j["s"],
                         "it": j["it"], "ir": j["ir"], "is": j["is"]} for j in joints],

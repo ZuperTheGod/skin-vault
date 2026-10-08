@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.0.8"
+VERSION = "1.0.9"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -850,12 +850,6 @@ def check_rig(path, rec):
     if not r:
         return
     rec["rig"] = {k: r.get(k) for k in ("verdict", "overlap", "agreement", "shift", "note", "masks")}
-    mk = r.get("masks")
-    if mk:
-        rec["issues"].append({"level": "warn", "msg": f"Bones jump around in game: the mod's skeleton has {mk['misplaced']} joint(s) in a different "
-                              "order than the game's animation masks expect, so whenever the game blends animations (attacking while "
-                              "running, emotes, etc.) arms and legs get pulled the wrong way. Single animations in the 3D viewer can "
-                              "still look fine. " + ("Click 🦴 Fix bones." if mk.get("fixable") else "")})
     v = r.get("verdict")
     wrong = round((1 - (r.get("agreement") or 0)) * 100)
     if v == "twisted":
@@ -932,7 +926,7 @@ STATE = {"status": "idle", "progress": 0, "total": 0, "current": "", "last_scan"
          "mods": {}, "folders": {}, "loose": [], "events": [], "scan_seconds": 0}
 LOCK = threading.RLock()
 CACHE_PATH = os.path.join(DATA_DIR, "scan_cache.json")
-SCAN_VERSION = 12
+SCAN_VERSION = 13
 
 def load_cache():
     try:
@@ -1758,14 +1752,14 @@ def ltk_entry_for(mid):
             return m["ltk_id"]
     return None
 
-def queue_fix(mid, slot=None, swap_ltk=False):
+def queue_fix(mid, slot=None, swap_ltk=False, masks=False):
     m, path = get_mod(mid)
     if not m:
         return None
     job = {"id": uuid.uuid4().hex[:8], "mod_id": mid, "name": m.get("name"), "champ": m.get("champ"),
            "slot": slot if slot is not None else m.get("applies_to"), "status": "queued", "steps": [],
            "report": None, "error": None, "t": time.time(),
-           "swap_ltk": ltk_entry_for(mid) if swap_ltk else None}
+           "swap_ltk": ltk_entry_for(mid) if swap_ltk else None, "masks": bool(masks)}
     if job["slot"] is None:
         job["slot"] = (m.get("skins") or [0])[0]
     with JOB_LOCK:
@@ -1834,7 +1828,8 @@ def run_fix(job):
     os.makedirs(out_dir, exist_ok=True)
     out = unique_path(os.path.join(out_dir, stem + " (fixed).fantome"))
     os.makedirs(WORK_DIR, exist_ok=True)
-    rep = fixer.fix_mod(path, champ, int(job["slot"]), gd, lt, WORK_DIR, out, log=lambda s: job["steps"].append(s))
+    rep = fixer.fix_mod(path, champ, int(job["slot"]), gd, lt, WORK_DIR, out, log=lambda s: job["steps"].append(s),
+                        fix_masks=bool(job.get("masks")))
     # verify the result the same way the scanner does
     rec = analyze_path(out)
     rep["verify"] = {"applies_to": rec.get("applies_to"), "applies_label": rec.get("applies_label"),
@@ -2600,7 +2595,7 @@ class Handler(BaseHTTPRequestHandler):
                 ids = data.get("ids") or []
                 if data.get("all_outdated"):
                     ids = [m["id"] for m in STATE["mods"].values() if m.get("outdated") and not m.get("dup_of") and m.get("champ")]
-                jobs = [queue_fix(i, data.get("slot"), bool(data.get("swap_ltk"))) for i in ids]
+                jobs = [queue_fix(i, data.get("slot"), bool(data.get("swap_ltk")), bool(data.get("masks"))) for i in ids]
                 return self.send(200, {"queued": len([j for j in jobs if j])})
             if u.path == "/api/unpack-ltmao":
                 try:
