@@ -479,6 +479,9 @@ def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path,
                 and not report.get("links_fixed") and not report.get("banks_fixed"):
             report["warnings"].append("Nothing needed changing - the mod's files already match what the game loads, "
                                       "or it doesn't contain a model/texture for this skin.")
+            report["unchanged"] = True
+            step("Nothing to fix - the mod was left as it is (no copy made)")
+            return report
 
         # ---- 8. repack with LtMAO
         for f in list(os.listdir(wad_dir)):

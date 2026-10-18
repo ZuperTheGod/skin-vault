@@ -1895,6 +1895,9 @@ def run_fix(job):
     os.makedirs(WORK_DIR, exist_ok=True)
     rep = fixer.fix_mod(path, champ, int(job["slot"]), gd, lt, WORK_DIR, out, log=lambda s: job["steps"].append(s),
                         fix_masks=bool(job.get("masks")))
+    if rep.get("unchanged"):             # nothing to fix: keep the original where it is, no "(fixed)" copy
+        job["report"] = rep
+        return
     # verify the result the same way the scanner does
     rec = analyze_path(out)
     rep["verify"] = {"applies_to": rec.get("applies_to"), "applies_label": rec.get("applies_label"),
