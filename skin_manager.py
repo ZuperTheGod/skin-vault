@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -1861,7 +1861,12 @@ def fix_worker():
                 except Exception as e:
                     for old, new, j in swaps:
                         j["ltk_swap_error"] = str(e)
-                    push_event({"file": "LTK swap", "ok": False, "fix": True, "msg": str(e), "origin": "fix"})
+                    if "League is running" in str(e):          # try again by itself once the match is over
+                        DEFERRED_SWAPS.extend(swaps); save_deferred()
+                        push_event({"file": "LTK swap", "ok": True, "fix": True, "origin": "fix",
+                                    "msg": f"League is running - {len(swaps)} fixed mod(s) will be swapped into LTK when your game ends"})
+                    else:
+                        push_event({"file": "LTK swap", "ok": False, "fix": True, "msg": str(e), "origin": "fix"})
             threading.Thread(target=scan_library, daemon=True).start()
 
 def run_fix(job):
@@ -2042,6 +2047,23 @@ def load_ltk(force=False):
 
 # ---- LTK Manager control (add via its own file handler; toggle/remove by editing its library while it's closed)
 PENDING_SWAPS = []
+DEFERRED_SWAPS = []       # swaps blocked by a running match, retried by ltk_watch (kept in data/deferred_swaps.json)
+
+def _deferred_path():
+    return os.path.join(DATA_DIR, "deferred_swaps.json")
+
+def save_deferred():
+    try:
+        json.dump([[o, n] for o, n, j in DEFERRED_SWAPS], open(_deferred_path(), "w", encoding="utf-8"))
+    except Exception:
+        pass
+
+def load_deferred():
+    try:
+        for o, n in json.load(open(_deferred_path(), encoding="utf-8")):
+            DEFERRED_SWAPS.append((o, n, {}))
+    except Exception:
+        pass
 LTK_LOCK = threading.Lock()
 
 def ltk_exe():
@@ -2391,6 +2413,24 @@ def ltk_watch():
     """Reload whenever LTK Manager rewrites its library (installs, removes, toggles - from here or in LTK)."""
     last = None
     while True:
+        if DEFERRED_SWAPS and not league_in_game():
+            swaps = DEFERRED_SWAPS[:]; DEFERRED_SWAPS.clear()
+            if not LTK["t"]:
+                refresh_ltk_bg(); time.sleep(3)
+            try:
+                live = {m.get("ltk_id") for m in LTK["mods"].values()}
+                ltk_apply([{"op": "remove", "id": old} for old, new, j in swaps if old in live], restart=False)
+                ltk_add([new for old, new, j in swaps if os.path.exists(new)])
+                for old, new, j in swaps:
+                    j["ltk_swapped"] = True; j.pop("ltk_swap_error", None)
+                push_event({"file": f"{len(swaps)} mod(s)", "ok": True, "fix": True, "msg": "Game over - swapped the fixed versions into LTK Manager", "origin": "fix"})
+                save_deferred()
+            except Exception as e:
+                if "League is running" in str(e):
+                    DEFERRED_SWAPS.extend(swaps)
+                else:
+                    push_event({"file": "LTK swap", "ok": False, "fix": True, "msg": str(e), "origin": "fix"})
+                save_deferred()
         st = ltk_lib_stamp()
         if st != last:
             if last is not None:
@@ -2853,6 +2893,7 @@ def main():
     threading.Thread(target=scan_library, daemon=True).start()
     threading.Thread(target=watch_drop_folder, daemon=True).start()
     threading.Thread(target=fix_worker, daemon=True).start()
+    load_deferred()
     threading.Thread(target=ltk_watch, daemon=True).start()
     threading.Thread(target=ltk_add_worker, daemon=True).start()
     threading.Thread(target=conv_worker, daemon=True).start()
