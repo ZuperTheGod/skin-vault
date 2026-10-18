@@ -295,6 +295,38 @@ def compatibility_checks():
     assert "cut short" in lol3d._tex_problem(tex(64, 64, 12, 1, 64 * 64))           # mip flag but no mips
     assert lol3d._tex_problem(tex(4, 4, 10, 1, 8 + 8 + 8)) is None                     # 4x4, 2x2, 1x1 chain
 
+def _link_bin(entries):
+    """PROP bin: entries = [(name_hash, link_target)] - each entry has one link field 'material'."""
+    body = b""
+    for name, tgt in entries:
+        e = struct.pack("<IH", name, 1) + struct.pack("<IB", lol3d.fnv1a("material"), 132) + struct.pack("<I", tgt)
+        body += struct.pack("<I", len(e)) + e
+    return b"PROP" + struct.pack("<II", 3, 0) + struct.pack("<I", len(entries)) + struct.pack("<I", 0x1111) * len(entries) + body
+
+@test
+def object_links_and_bank_ids():
+    """Links to objects that don't exist are found like LTK finds them and re-pointed to what the game uses; empty bank ids get set."""
+    import tempfile, fixtures
+    tmp = tempfile.mkdtemp()
+    champs = os.path.join(tmp, "Game", "DATA", "FINAL", "Champions"); os.makedirs(champs)
+    skin = "data/characters/testo/skins/skin0.bin"
+    game_skin = _link_bin([(0xAAAA, 0x5001), (0xBBBB, 0x7777)])          # 0x7777 is dangling in the game itself
+    mats = _link_bin([(0x5001, 0), (0x5002, 0)])                          # defines the material objects
+    open(os.path.join(champs, "Testo.wad.client"), "wb").write(fixtures.wad_bytes({skin: game_skin, "data/characters/testo/mats.bin": mats}))
+    old_dd = lol3d.DATA_DIR; lol3d.DATA_DIR = tmp; lol3d._OBJ_INDEX.clear(); lol3d._WAD_CACHE.pop("testo", None)
+    try:
+        gd = os.path.join(tmp, "Game")
+        mod_skin = _link_bin([(0xAAAA, 0x9999), (0xBBBB, 0x7777)])        # old patch: 0x9999 no longer exists
+        bl = lol3d.broken_links({lol3d.path_hash(skin): mod_skin}, gd, "Testo")
+        assert len(bl) == 1 and bl[0]["target"] == 0x9999 and bl[0]["repoint"] == 0x5001, bl
+        assert len(lol3d.game_object_index(gd)) >= 4
+    finally:
+        lol3d.DATA_DIR = old_dd; lol3d._OBJ_INDEX.clear(); lol3d._WAD_CACHE.pop("testo", None)
+    bank = b"BKHD" + struct.pack("<III", 12, 145, 0) + b"\0" * 8
+    fixed = lol3d.bank_id_fix(bank, "ASSETS/Sounds/Wwise2016/SFX/Characters/Evelynn/Skins/Base/Evelynn_Base_SFX_audio.bnk")
+    assert struct.unpack_from("<I", fixed, 12)[0] == lol3d.fnv1_lower("Evelynn_Base_SFX_audio")
+    assert lol3d.bank_id_fix(fixed, "x/y.bnk") is None and lol3d.bank_id_fix(bank, "a/0123456789abcdef.bnk") is None
+
 @test
 def skn_parse():
     m = lol3d.parse_skn(fixtures.skn_bytes())

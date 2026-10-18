@@ -12,7 +12,7 @@ The browser opens at http://127.0.0.1:8765
 import os, sys, re, io, json, time, zlib, struct, array, bisect, shutil, zipfile, socket
 import threading, hashlib, difflib, urllib.request, urllib.parse, webbrowser, traceback, subprocess, uuid
 
-VERSION = "1.2.1"
+VERSION = "1.3.0"
 # GitHub "owner/repo" that update checks look at (config.json "update_repo" overrides it)
 GITHUB_REPO = "ZuperTheGod/skin-vault"
 
@@ -837,6 +837,40 @@ def check_bin_types(path, rec, col):
         rec["issues"].append({"level": "info", "msg": f"Uses {simple} skin setting(s) from an older patch. LTK Manager updates these "
                               "automatically when you add the mod, or Auto-fix can update the file itself."})
 
+def check_links(path, rec):
+    """LTK's bin/object-link and audio/bank-id findings, which Auto-fix can now repair."""
+    if path.lower().endswith((".rar", ".7z")) or not rec.get("champ"):
+        return
+    try:
+        layer = lol3d.mod_layer(path)
+    except Exception:
+        return
+    bins, banks = {}, 0
+    for h, g in layer.items():
+        try:
+            d = g()
+        except Exception:
+            continue
+        if d[:4] in (b"PROP", b"PTCH"):
+            bins[h] = d
+        elif d[:4] == b"BKHD" and len(d) >= 16 and struct.unpack_from("<I", d, 12)[0] == 0:
+            banks += 1
+    if banks:
+        rec["issues"].append({"level": "info", "msg": f"{banks} sound bank(s) have no id set (LTK: \"Unset soundbank id\"). "
+                              "🛠 Auto-fix sets it."})
+    gd = game_dir()
+    if bins and gd and lol3d._OBJ_INDEX.get("idx") is not None:
+        try:
+            bl = lol3d.broken_links(bins, gd, rec["champ"])
+        except Exception:
+            bl = []
+        fix = sum(1 for b in bl if b["repoint"])
+        if bl:
+            rec["issues"].append({"level": "warn" if fix else "info", "msg":
+                f"{len(bl)} link(s) to objects that don't exist (LTK: \"Missing linked object\")"
+                + (f" - 🛠 Auto-fix can re-point {fix} of them to what the current game uses." if fix else
+                   " - nothing in the current game replaces them, so they stay empty in game (harmless for most).")})
+
 def check_compat(path, rec):
     """Game compatibility check: bones effects attach to, broken models, missing animations/files, bad textures."""
     champ, skin = rec.get("champ"), rec.get("applies_to")
@@ -923,6 +957,7 @@ def analyze_path(path, context_champ=None):
     check_bin_types(path, rec, col)
     check_rig(path, rec)
     check_compat(path, rec)
+    check_links(path, rec)
     if wrapped:
         rec["wrapped"] = wrapped
         rec["issues"].append({"level": "info", "msg": f"Zip wrapping {os.path.basename(wrapped)} - Organize/Import unwraps it automatically"})
@@ -945,7 +980,7 @@ STATE = {"status": "idle", "progress": 0, "total": 0, "current": "", "last_scan"
          "mods": {}, "folders": {}, "loose": [], "events": [], "scan_seconds": 0}
 LOCK = threading.RLock()
 CACHE_PATH = os.path.join(DATA_DIR, "scan_cache.json")
-SCAN_VERSION = 15
+SCAN_VERSION = 16
 
 def load_cache():
     try:
@@ -1155,6 +1190,12 @@ def scan_library():
         STATE.update(status="scanning", progress=0, total=0, current="Finding mods...")
     t0 = time.time()
     try:
+        gd = game_dir()
+        if gd:
+            try:      # list of every object the game defines - instant once built, ~2 min once per game patch
+                lol3d.game_object_index(gd, progress=lambda m: STATE.update(current=m + " (once per game patch)"))
+            except Exception as e:
+                log("game object index failed:", e)
         cache = load_cache()
         units, loose = discover()
         STATE["total"] = len(units)

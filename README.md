@@ -27,7 +27,7 @@ A 4-minute walkthrough for complete beginners: what skin mods are, how to instal
 - **Game compatibility check.** Follows every link the game makes between a skin's files and checks the mod still meets it: bones the game attaches effects or physics to, models with broken vertices or unattached parts, animations that don't exist (T-pose), model/texture files the skin data points at that are missing, and textures the game will refuse or show corrupted.
 - **NEW tags** on recently added mods.
 - **LTK Manager integration** *(optional)*. See what's loaded in [LTK Manager](https://github.com/LeagueToolkit/ltk-manager), and add, remove, enable or disable mods from the site. `.zip` mods are pre-converted to `.fantome` with a visible progress bar, so adding is quick.
-- **Auto-fix** *(optional, needs LtMAO-hai)*. Converts DDS → TEX, remaps outdated paths to the current game files, and repacks the mod. The original is kept in `_Originals`.
+- **Auto-fix** *(optional, needs LtMAO-hai)*. Converts DDS → TEX, remaps outdated paths to the current game files, updates settings whose type changed in a patch, re-points links to objects the game removed (LTK's "Missing linked object"), sets empty sound bank ids ("Unset soundbank id"), and repacks the mod. The original is kept in `_Originals`.
 - **Organize library.** Preview a full re-sort before anything moves, with one-click undo.
 - **Safe delete.** Deleted mods go to the Windows Recycle Bin.
 - **Auto-updates.** Skin Vault tells you when a new version is out and installs it in one click. Your mods and settings are kept.

@@ -161,6 +161,41 @@ class Wad:
             return bytes(out)
         raise ValueError(f"unknown entry type {t}")
 
+def _wad_head(self, h, n=8):
+    """First n bytes of an entry, decompressing as little as possible (to sniff file types quickly)."""
+    off, cs, us, t, nsub, fsub = self.entries[h]
+    take = min(cs, 4096)
+    with self._lock:
+        self.f.seek(off); data = self.f.read(take)
+    if t in (0, 2):
+        return data[:n]
+    if t == 1:
+        try:
+            return zlib.decompressobj(16 + zlib.MAX_WBITS).decompress(data, n)
+        except Exception:
+            return b""
+    if t == 4:
+        table = self._subchunk_table()
+        if table and nsub and fsub < len(table):
+            csz, usz, _ = table[fsub]
+            if csz == usz:
+                return data[:n]
+    if data[:4] != b"\x28\xb5\x2f\xfd" or _zstd is None:
+        return data[:n]
+    try:
+        out = _zstd.ZstdDecompressor().decompressobj().decompress(data)[:n]
+    except Exception:
+        out = b""
+    if len(out) < n and take < cs:      # first zstd block not complete yet - read that block in full
+        with self._lock:
+            self.f.seek(off); data = self.f.read(min(cs, 140 * 1024))
+        try:
+            out = _zstd.ZstdDecompressor().decompressobj().decompress(data)[:n]
+        except Exception:
+            out = b""
+    return out
+Wad.head = _wad_head
+
 # ------------------------------------------------------------------ file layers
 class _WadSource:
     def __init__(self, wad):
@@ -1974,3 +2009,219 @@ def compat_check(champ_id, skin_num, game_dir, mod_path):
     if bad:
         out.append({"level": "warn", "code": "tex-bad", "msg": "Broken texture(s): " + "; ".join(bad[:3]) + ("…" if len(bad) > 3 else "")})
     return out
+
+
+# ------------------------------------------------------------------ object links (bin/object-link) and Wwise bank ids
+def bin_entry_names(data):
+    """Name hashes of the objects a PROP bin defines (reads only the entry table)."""
+    p = 0
+    if data[:4] == b"PTCH":
+        p = 16
+    if data[p:p + 4] != b"PROP":
+        return []
+    p += 4
+    ver = struct.unpack_from("<I", data, p)[0]; p += 4
+    if ver >= 2:
+        n = struct.unpack_from("<I", data, p)[0]; p += 4
+        for _ in range(n):
+            ln = struct.unpack_from("<H", data, p)[0]; p += 2 + ln
+    count = struct.unpack_from("<I", data, p)[0]; p += 4 + 4 * count
+    out = []
+    for _ in range(count):
+        size, name = struct.unpack_from("<II", data, p)
+        out.append(name); p += 4 + size
+    return out
+
+def bin_links(data):
+    """Every object-link value in a PROP bin: [(offset, entry hash, path tuple, target hash)].
+    path = field hashes plus list indexes / map keys from the entry down to the link."""
+    d = data; p = [0]; out = []; path = []
+    def u8():
+        v = d[p[0]]; p[0] += 1; return v
+    def u16():
+        v = struct.unpack_from("<H", d, p[0])[0]; p[0] += 2; return v
+    def u32():
+        v = struct.unpack_from("<I", d, p[0])[0]; p[0] += 4; return v
+    def fields(n, entry):
+        for _ in range(n):
+            name = u32(); t = u8()
+            path.append(name); value(t, entry); path.pop()
+    def key_of(t):
+        start = p[0]; value(t, None, record=False)
+        return d[start:p[0]]
+    def value(t, entry, record=True):
+        if t in BinReader.PRIM:
+            p[0] += BinReader.PRIM[t]; return
+        if t == 16:
+            n = u16(); p[0] += n; return
+        if t in (BinReader.LIST, BinReader.LIST2):
+            et = u8(); size = u32(); end = p[0] + size; cnt = u32()
+            for i in range(cnt):
+                path.append(i); value(et, entry, record); path.pop()
+            p[0] = end; return
+        if t in (BinReader.POINTER, BinReader.EMBED):
+            cls = u32()
+            if cls:
+                size = u32(); end = p[0] + size
+                fields(u16(), entry); p[0] = end
+            return
+        if t == BinReader.LINK:
+            o = p[0]; tgt = u32()
+            if record and entry is not None and tgt:
+                out.append((o, entry, tuple(path), tgt))
+            return
+        if t == BinReader.OPTION:
+            et = u8()
+            if u8():
+                value(et, entry, record)
+            return
+        if t == BinReader.MAP:
+            kt = u8(); vt = u8(); size = u32(); end = p[0] + size; cnt = u32()
+            for _ in range(cnt):
+                k = key_of(kt)
+                path.append(("k", k)); value(vt, entry, record); path.pop()
+            p[0] = end; return
+        if t == BinReader.FLAG:
+            p[0] += 1; return
+        raise ValueError(f"unknown bin type {t}")
+    if d[:4] == b"PTCH":
+        p[0] = 16
+    if d[p[0]:p[0] + 4] != b"PROP":
+        raise ValueError("not a PROP bin")
+    p[0] += 4
+    if u32() >= 2:
+        for _ in range(u32()):
+            n = u16(); p[0] += n
+    count = u32(); p[0] += 4 * count
+    for _ in range(count):
+        size = u32(); end = p[0] + size
+        name = u32(); fields(u16(), name)
+        p[0] = end
+    return out
+
+_OBJ_INDEX = {}
+
+def game_object_index(game_dir, progress=lambda s: None):
+    """{object name hash: set of WAD chunk hashes of the game bins that define it}, for the whole install.
+    Built once per game build and cached in DATA_DIR (it reads every .bin in DATA/FINAL)."""
+    root = os.path.join(game_dir, "DATA", "FINAL")
+    wads = []
+    for dp, dn, fn in os.walk(root):
+        for f in fn:
+            # language packs (Ahri.en_US.wad.client) only hold audio/text - no bins to index
+            if f.lower().endswith(".wad.client") and not re.search(r"\.[a-z]{2}_[a-z]{2}\.wad\.client$", f.lower()):
+                wads.append(os.path.join(dp, f))
+    wads = sorted(set(wads))
+    sig = f"{len(wads)}:" + str(int(max((os.path.getmtime(w) for w in wads), default=0)))
+    if _OBJ_INDEX.get("sig") == sig:
+        return _OBJ_INDEX["idx"]
+    cache = os.path.join(DATA_DIR, "game_objects.bin")
+    try:
+        with open(cache, "rb") as f:
+            head = f.readline().decode().strip()
+            if head == sig:
+                raw = zlib.decompress(f.read())
+                idx = {}
+                for name, chunk in struct.iter_unpack("<IQ", raw):
+                    idx.setdefault(name, set()).add(chunk)
+                _OBJ_INDEX.update(sig=sig, idx=idx)
+                return idx
+    except Exception:
+        pass
+    idx = {}
+    for i, w in enumerate(wads):
+        progress(f"Indexing game data {i + 1}/{len(wads)}")
+        try:
+            wad = Wad(w, os.path.basename(w))
+        except Exception:
+            continue
+        for h, e in list(wad.entries.items()):
+            if e[2] > 64 << 20:
+                continue
+            try:
+                if wad.head(h, 4) not in (b"PROP", b"PTCH"):
+                    continue
+                d = wad.read(h)
+            except Exception:
+                continue
+            try:
+                for name in bin_entry_names(d):
+                    idx.setdefault(name, set()).add(h)
+            except Exception:
+                pass
+    try:
+        rows = bytearray()
+        for name, chunks in idx.items():
+            for ch in chunks:
+                rows += struct.pack("<IQ", name, ch)
+        with open(cache, "wb") as f:
+            f.write(sig.encode() + b"\n"); f.write(zlib.compress(bytes(rows), 6))
+    except Exception:
+        pass
+    _OBJ_INDEX.update(sig=sig, idx=idx)
+    return idx
+
+def broken_links(mod_bins, game_dir, champ_id=None):
+    """Object links in a mod's bins whose target no bin defines - the same test as LTK's bin/object-link.
+    mod_bins: {wad chunk hash: bin bytes}. Returns [{"bin", "offset", "entry", "path", "target", "repoint"}],
+    where repoint is the link the current game has at the same spot (a defined object), or None."""
+    idx = game_object_index(game_dir)
+    defined = set()
+    links = {}
+    for h, d in mod_bins.items():
+        try:
+            defined.update(bin_entry_names(d)); links[h] = bin_links(d)
+        except Exception:
+            return []                  # an unreadable bin may define anything
+    replaced = set(mod_bins)
+    def ok(t):
+        if t in defined:
+            return True
+        chunks = idx.get(t)
+        return bool(chunks) and not chunks <= replaced
+    gw = game_wad(game_dir, champ_id) if champ_id else None
+    out = []
+    for h, ls in links.items():
+        game_same = None
+        for off, entry, path, tgt in ls:
+            if ok(tgt):
+                continue
+            if game_same is None:
+                game_same = {}
+                gd = gw.read(h) if gw and h in gw.entries else None
+                if gd:
+                    try:
+                        for _o, e2, p2, t2 in bin_links(gd):
+                            game_same[(e2, p2)] = t2
+                    except Exception:
+                        pass
+            g = game_same.get((entry, path))
+            if g is not None and g == tgt:
+                continue               # the game ships this exact dangling link itself
+            out.append({"bin": h, "offset": off, "entry": entry, "path": path, "target": tgt,
+                        "repoint": g if g is not None and ok(g) else None})
+    return out
+
+def fnv1_lower(name):
+    h = 0x811C9DC5
+    for c in name.lower().encode():
+        h = ((h * 0x01000193) & 0xFFFFFFFF) ^ c
+    return h
+
+def bank_paths(bins):
+    """{wad chunk hash: bank path} for every .bnk/.wpk path written in plaintext in these bins."""
+    out = {}
+    for d in bins:
+        for m in re.finditer(rb"[\x20-\x7e]{6,}\.(?:bnk|wpk)", d, re.I):
+            s = m.group().decode("latin-1")
+            out[path_hash(s)] = s
+    return out
+
+def bank_id_fix(data, path):
+    """New bytes for a Wwise bank whose header id is 0 (or None when it's fine / the name is unknown)."""
+    if data[:4] != b"BKHD" or len(data) < 16 or struct.unpack_from("<I", data, 12)[0] != 0 or not path:
+        return None
+    stem = os.path.splitext(path.replace("\\", "/").split("/")[-1])[0]
+    if not stem or re.fullmatch(r"[0-9a-fA-F]{16}", stem):
+        return None
+    return data[:12] + struct.pack("<I", fnv1_lower(stem)) + data[16:]

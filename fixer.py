@@ -464,13 +464,19 @@ def fix_mod(mod_path, champ_id, slot, game_dir, ltmao_root, work_root, out_path,
             report["warnings"].append(f"Couldn't check the part names: {e}")
 
         try:
+            _fix_links_and_banks(wad_dir, champ_id, game_dir, report, step)
+        except Exception as e:
+            report["warnings"].append(f"Couldn't check object links / sound banks: {e}")
+
+        try:
             if fix_masks:          # experimental: only when asked for in the Fix dialog
                 _fix_masks(cw, champ_id, slot, game_wad, report, step)
         except Exception as e:
             report["warnings"].append(f"Couldn't check the animation masks: {e}")
 
         if not report["mapped"] and not report["bins_patched"] and not report.get("bins_retyped") and not report.get("bones_fixed") \
-                and not report.get("masks_fixed") and not report.get("names_fixed"):
+                and not report.get("masks_fixed") and not report.get("names_fixed") \
+                and not report.get("links_fixed") and not report.get("banks_fixed"):
             report["warnings"].append("Nothing needed changing - the mod's files already match what the game loads, "
                                       "or it doesn't contain a model/texture for this skin.")
 
@@ -637,6 +643,76 @@ def _fix_rig(cw, champ_id, slot, game_wad, report, step):
     report["bones_fixed"] = n; report["rig_after"] = after
     step(f"Bones: {moved}re-attached {n} vertices to the right bones "
          f"({round(v.get('agreement', 0) * 100)}% -> {round(after['agreement'] * 100)}% matching the original rig)")
+
+def _wad_files(wd):
+    """{wad chunk hash: file path} for an unpacked WAD folder (real names or hex-named files)."""
+    out = {}
+    for dp, dn, fn in os.walk(wd):
+        for f in fn:
+            full = os.path.join(dp, f)
+            rel = os.path.relpath(full, wd).replace("\\", "/")
+            m = re.match(r"^([0-9a-fA-F]{16})(\.\w+)?$", rel)
+            out[int(m.group(1), 16) if m else lol3d.path_hash(rel.lower())] = full
+    return out
+
+def _fix_links_and_banks(wad_dir, champ_id, game_dir, report, step):
+    """bin/object-link: re-point links to objects that no longer exist at what the current game links at the same spot.
+    audio/bank-id: give Wwise banks with an empty header id the id their own name hashes to."""
+    links_fixed = banks_fixed = 0; left = 0
+    for wd in [os.path.join(wad_dir, f) for f in os.listdir(wad_dir) if os.path.isdir(os.path.join(wad_dir, f))]:
+        files = _wad_files(wd)
+        champ = re.sub(r"\.wad$", "", os.path.basename(wd), flags=re.I).split(".")[0]
+        bins = {}
+        for h, p in files.items():
+            with open(p, "rb") as f:
+                head = f.read(4)
+            if head in (b"PROP", b"PTCH"):
+                bins[h] = open(p, "rb").read()
+        if bins:
+            broken = lol3d.broken_links(bins, game_dir, champ)
+            patched = {}
+            for b in broken:
+                if b["repoint"]:
+                    d = patched.setdefault(b["bin"], bytearray(bins[b["bin"]]))
+                    struct.pack_into("<I", d, b["offset"], b["repoint"])
+                    links_fixed += 1
+                else:
+                    left += 1
+            for h, d in patched.items():
+                with open(files[h], "wb") as f:
+                    f.write(bytes(d))
+        # sound banks
+        names = None
+        for h, p in files.items():
+            with open(p, "rb") as f:
+                head = f.read(16)
+            if head[:4] != b"BKHD" or len(head) < 16 or struct.unpack_from("<I", head, 12)[0] != 0:
+                continue
+            rel = os.path.relpath(p, wd).replace("\\", "/")
+            path = None if re.match(r"^[0-9a-fA-F]{16}", os.path.basename(rel)) else rel
+            if path is None:
+                if names is None:
+                    names = lol3d.bank_paths(bins.values())
+                    gw = lol3d.game_wad(game_dir, champ)
+                    if gw:
+                        gb = [gw.read(x) for x, e in gw.entries.items() if e[2] < 8 << 20 and gw.head(x, 4) in (b"PROP", b"PTCH")]
+                        names.update({k: v for k, v in lol3d.bank_paths(gb).items() if k not in names})
+                path = names.get(h)
+            data = open(p, "rb").read()
+            new = lol3d.bank_id_fix(data, path)
+            if new:
+                with open(p, "wb") as f:
+                    f.write(new)
+                banks_fixed += 1
+    if links_fixed:
+        report["links_fixed"] = links_fixed
+        step(f"Re-pointed {links_fixed} link(s) to objects that no longer exist at what the current game uses there")
+    if left:
+        report["warnings"].append(f"{left} link(s) point at objects that don't exist anywhere and have no current equivalent - "
+                                  "the game treats them as empty, the same as before")
+    if banks_fixed:
+        report["banks_fixed"] = banks_fixed
+        step(f"Set the missing id on {banks_fixed} sound bank(s)")
 
 def _fix_part_names(cw, champ_id, slot, game_wad, report, step):
     """Rename model parts whose names differ from the game's only in upper/lower case (the game matches exactly)."""
